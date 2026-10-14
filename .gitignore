@@ -1,0 +1,45 @@
+# Original, processed, and external datasets; all generated outputs
+/data/
+/models/
+/reports/
+/outputs/
+/artifacts/
+/logs/
+/htmlcov/
+.coverage
+.coverage.*
+
+# Environments and Python artifacts
+.venv/
+venv/
+env/
+*.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.pip-cache/
+.ipynb_checkpoints/
+build/
+dist/
+*.egg-info/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+.aws/
+credentials*.json
+client_secret*.json
+*.pem
+*.key
+/configs/*.local.*
+
+# Machine-specific files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
