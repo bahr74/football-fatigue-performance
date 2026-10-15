@@ -8,7 +8,7 @@ The dataset is FIFA World Cup 2022 data, downloaded from [this Drive folder](htt
 
 ## Local raw layout (observed from file names, sizes, and hashes)
 
-Location: `data/raw/` (ignored by Git). Observed on 2026-10-15 after a fresh download. Beyond the readability check below, file contents have not been inspected; schemas, units, frequency, coordinates, and clocks are unverified. Google Drive split each source family into numbered download parts.
+Location: `data/raw/` (ignored by Git). Observed on 2026-10-15 after a fresh download. The Milestone 1B audit has since inspected file contents; its findings (schemas, units, frequency, coordinates, clocks, and data problems) are in [dataset_schema_audit.md](dataset_schema_audit.md) and [event_version_comparison.md](event_version_comparison.md), pending independent review. Google Drive split each source family into numbered download parts.
 
 | Folder (timestamp suffix as downloaded) | Files | Content |
 | --- | --- | --- |
@@ -22,7 +22,7 @@ Location: `data/raw/` (ignored by Git). Observed on 2026-10-15 after a fresh dow
 
 **Coverage (file inventory):** 64 matches (IDs 3812 to 3859 and 10502 to 10517), each present in tracking, events, metadata, and rosters. Tracking parts `-001` and `-002` are disjoint (32 matches each); metadata and rosters hold all 64 IDs in one part each. Match 3812 is present in all four families. No zero-byte or unusually small files were observed. `competitions.csv` appears to list match IDs (unverified).
 
-**Event Data versions:** there are **three distinct versions** of the event files: top level (unlabelled), `March 14, 2025`, and `May 1, 2025`. Each version covers all 64 matches, distributed across the two download parts (a given ID and version lives in exactly one part, so both parts are needed). The three versions of an ID differ in size (averaging about 18.0 MB, 10.9 MB, and 16.6 MB), so they are different content, not copies. **Which version is authoritative has not been determined.** Do not treat versions as interchangeable; resolve this using the specification PDFs, the change log, and file contents before ingestion.
+**Event Data versions:** there are **three distinct versions** of the event files: top level (unlabelled), `March 14, 2025`, and `May 1, 2025`. Each version covers all 64 matches, distributed across the two download parts (a given ID and version lives in exactly one part, so both parts are needed). The three versions of an ID differ in size (averaging about 18.0 MB, 10.9 MB, and 16.6 MB), so they are different content, not copies. **Which version is authoritative has not been finally determined.** A provisional, evidence-based policy is in [event_version_comparison.md](event_version_comparison.md) and needs independent review. Do not treat versions as interchangeable.
 
 **Provenance of this copy:** an earlier download included a second tracking copy (timestamp `150751Z`). Its 64 files were verified byte-identical (SHA-256) to those in `150539Z`, and the user has manually removed it. Only `150539Z` parts `-001` and `-002` remain.
 

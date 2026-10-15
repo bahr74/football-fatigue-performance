@@ -12,13 +12,14 @@ Repository: <https://github.com/bahr74/football-fatigue-performance>
 | --- | --- |
 | Repository foundation: installable `football_fatigue` package, import test, CI, documentation | **Implemented** (Milestone 0) |
 | Dataset discovery and multi-match inventory (file names and sizes only) | **Implemented** (Milestone 1A, pending final independent review) |
-| Schema inspection (next, Milestone 1B), ingestion, content validation, checksums, preprocessing | Planned |
+| Schema audit and proposed data contracts (documentation plus read-only reproducible audit scripts in [scripts/audit](scripts/audit/README.md): [dataset schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), [data contracts](docs/data_contracts.md)) | **Implemented** (Milestone 1B, pending independent review; not formally complete; version policy and contracts are provisional) |
+| Ingestion, content validation, checksums, preprocessing | Planned |
 | Tracking–event synchronization | Planned |
 | Interactive 2D tactical board | Planned |
 | Movement analytics (distance, speed, acceleration, workload indicators where scientifically supported) | Planned |
 | Video detection/tracking, ball trajectories, out-of-frame estimation, wearables/physiology, fatigue prediction, injury-risk research, genetics | Future, not started, no code |
 
-The package contains the metadata-only dataset inventory (`football_fatigue.inventory`) and nothing else. No file contents are parsed, and no schema validation, checksums, backend, frontend, analytics, or model exists.
+The package contains the metadata-only dataset inventory (`football_fatigue.inventory`) and nothing else. The package parses no file contents, and no schema validation, checksums, backend, frontend, analytics, or model exists. The Milestone 1B audit's key quantitative findings are reproducible with the read-only scripts in `scripts/audit/`; they are audit tooling, not an ingestion or synchronization implementation.
 
 ## Dataset inventory
 
@@ -40,7 +41,7 @@ The package contains the metadata-only dataset inventory (`football_fatigue.inve
 
 The planned dataset is FIFA World Cup 2022, obtained from [this Drive folder](https://drive.google.com/drive/folders/1_a_q1e9CXeEPJ3GdCv_3-rNO3gPqacfa) and stored locally, unchanged, at `data/raw/` (ignored by Git). It is expected to contain tracking, events, rosters, metadata, and global reference files. Downloaded top-level folders carry timestamp suffixes; keep them exactly as downloaded.
 
-By file inventory (names, extensions, sizes, and counts), the local copy covers **64 matches** with tracking, events, metadata, and rosters for each. Event Data exists in **three distinct versions** (root, `March 14, 2025`, `May 1, 2025`), each covering all 64 matches, and which version is authoritative has **not yet been determined**. A read-only readability check (all tracking `.bz2` files decompress; all event, metadata, and roster files parse as JSON) passed with no errors; this is not schema validation. **Beyond that check, no file schemas, sampling frequency, coordinate system, time conventions, or licensing terms have been verified.** See [docs/data_policy.md](docs/data_policy.md) for the observed layout and handling rules. Match `3812` is the initial development sample, not a hardcoded limitation; all processing must accept any match ID. There are no match videos.
+By file inventory (names, extensions, sizes, and counts), the local copy covers **64 matches** with tracking, events, metadata, and rosters for each. Event Data exists in **three distinct versions** (root, `March 14, 2025`, `May 1, 2025`), each covering all 64 matches, and which version is authoritative has **not yet been determined**. A read-only readability check (all tracking `.bz2` files decompress; all event, metadata, and roster files parse as JSON) passed with no errors. The Milestone 1B audit then inspected the actual files and the PFF specifications: schemas, frame rate (29.97 fps), coordinate system, time bases, identifier relationships, event version differences, and several data problems are documented in [docs/dataset_schema_audit.md](docs/dataset_schema_audit.md) and [docs/event_version_comparison.md](docs/event_version_comparison.md), with a provisional (not final) Event Data version policy. **Licensing terms and checksums remain unverified.** See [docs/data_policy.md](docs/data_policy.md) for the observed layout and handling rules. Match `3812` is the initial development sample, not a hardcoded limitation; all processing must accept any match ID. There are no match videos.
 
 ## Setup (Windows, Python 3.12)
 
@@ -60,8 +61,9 @@ Activation is optional; invoking the environment's interpreter directly works. U
 | Path | Purpose |
 | --- | --- |
 | `src/football_fatigue/` | Python package (currently the metadata-only dataset inventory) |
-| `tests/` | Tests (installed-package check and synthetic inventory tests; no dataset required) |
-| `docs/` | [Architecture](docs/architecture.md) and [data policy](docs/data_policy.md) |
+| `tests/` | Tests (installed-package check, synthetic inventory tests, and synthetic tests of the audit verification logic; no dataset required) |
+| `scripts/audit/` | Read-only Milestone 1B audit verification scripts (not production code); see its README for reproduction commands |
+| `docs/` | [Architecture](docs/architecture.md), [data policy](docs/data_policy.md), and the Milestone 1B [schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), and proposed [data contracts](docs/data_contracts.md) |
 | `data/raw/` | Original dataset, immutable, ignored by Git |
 | `data/processed/` | Reproducible derived data, ignored by Git |
 | `data/external/` | Other external data, ignored by Git |
