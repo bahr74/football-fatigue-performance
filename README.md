@@ -13,13 +13,38 @@ Repository: <https://github.com/bahr74/football-fatigue-performance>
 | Repository foundation: installable `football_fatigue` package, import test, CI, documentation | **Implemented** (Milestone 0) |
 | Dataset discovery and multi-match inventory (file names and sizes only) | **Implemented** (Milestone 1A, pending final independent review) |
 | Schema audit and proposed data contracts (documentation plus read-only reproducible audit scripts in [scripts/audit](scripts/audit/README.md): [dataset schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), [data contracts](docs/data_contracts.md)) | **Implemented** (Milestone 1B, pending independent review; not formally complete; version policy and contracts are provisional) |
-| Ingestion, content validation, checksums, preprocessing | Planned |
+| Production streaming ingestion and quality reporting (`football_fatigue.ingestion`) | **Implemented** (Milestone 2A, pending independent review) |
+| Checksums/provenance manifest, preprocessing | Planned |
 | Tracking–event synchronization | Planned |
 | Interactive 2D tactical board | Planned |
 | Movement analytics (distance, speed, acceleration, workload indicators where scientifically supported) | Planned |
 | Video detection/tracking, ball trajectories, out-of-frame estimation, wearables/physiology, fatigue prediction, injury-risk research, genetics | Future, not started, no code |
 
 The package contains the metadata-only dataset inventory (`football_fatigue.inventory`) and nothing else. The package parses no file contents, and no schema validation, checksums, backend, frontend, analytics, or model exists. The Milestone 1B audit's key quantitative findings are reproducible with the read-only scripts in `scripts/audit/`; they are audit tooling, not an ingestion or synchronization implementation.
+
+## Ingestion (Milestone 2A)
+
+`football_fatigue.ingestion` provides typed, read-only loaders and per-match quality reports. It implements the provisional contracts of [docs/data_contracts.md](docs/data_contracts.md); it does not synchronize events with tracking, smooth or interpolate, compute metrics, or render anything.
+
+```python
+from football_fatigue.ingestion import Dataset, EventVersion, quality_report, write_quality_report
+
+ds = Dataset("data/raw")                                    # files are located through the project inventory
+meta, roster = ds.metadata("3812"), ds.roster("3812")        # validated; fatal problems raise IngestionError
+events = ds.load_events("3812", EventVersion.ROOT)           # a version must be named; no fallback; source order and duplicates kept
+for frame in ds.iter_tracking_frames("3812", roster=roster): # streaming, bounded memory; repeated frameNum records collapse
+    ball = frame.ball                                        # None = missing observation (never 0)
+    for p in frame.players:                                  # raw x/y, all smoothed candidates, flagged status, side+shirt identity
+        ...
+report = quality_report(ds, "3812", EventVersion.ROOT)       # one tracking pass; use max_frames=N for a bounded smoke test
+write_quality_report(report, "data/raw")                     # only below data/processed/ingestion_quality/<match>/<version>.json
+```
+
+```powershell
+.\.venv\Scripts\python.exe -m football_fatigue.ingestion quality 3812 --events root [--max-frames 3000] [--write [--overwrite]]
+```
+
+Conflicting smoothed candidates are kept and the canonical smoothed coordinate is left `None` (never the first candidate); an invalid source period is kept next to a `None` canonical period; identity uses the roster join on (side, shirt number), never the jersey number alone, and periods named in `quarantine_periods` are withheld instead of swapped. Exit codes of the CLI: 0 report produced, 1 fatal structural error in a source, 2 invalid arguments or an unsafe output location.
 
 ## Dataset inventory
 
@@ -62,6 +87,7 @@ Activation is optional; invoking the environment's interpreter directly works. U
 | --- | --- |
 | `src/football_fatigue/` | Python package (currently the metadata-only dataset inventory) |
 | `tests/` | Tests (installed-package check, synthetic inventory tests, and synthetic tests of the audit verification logic; no dataset required) |
+| `src/football_fatigue/ingestion/` | Milestone 2A loaders, canonical models, and quality reports (see above) |
 | `scripts/audit/` | Read-only Milestone 1B audit verification scripts (not production code); see its README for reproduction commands |
 | `docs/` | [Architecture](docs/architecture.md), [data policy](docs/data_policy.md), and the Milestone 1B [schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), and proposed [data contracts](docs/data_contracts.md) |
 | `data/raw/` | Original dataset, immutable, ignored by Git |

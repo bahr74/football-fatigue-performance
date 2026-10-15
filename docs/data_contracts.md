@@ -4,6 +4,8 @@ Status: **proposal for the next implementation milestone, derived from the audit
 
 All examples are **synthetic** illustrations of shape, not source data.
 
+**Implementation status (Milestone 2A):** `football_fatigue.ingestion` implements the match, roster, period-aware tracking frame, player sample, ball sample, and event-row contracts with the following deliberate choices: tracking frames are produced by a streaming reader (`source_record_indices` keep every repeated record); smoothed candidates are kept and the canonical smoothed coordinate is `None` when they conflict; identity needs a roster and uses (side, shirt) only, with caller-named `quarantine_periods` withheld rather than swapped; the Period table and the alignment `TimelineEntry` are **not** implemented (they belong with synchronization, Milestone 2B); the event `positions_snapshot` and `attributes` keep source sections verbatim.
+
 ## 1. Cross-cutting conventions and invariants
 
 | # | Invariant | Basis |
