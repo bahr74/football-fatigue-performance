@@ -4,7 +4,9 @@ Scope: Task 2, Software Architecture & Tactical Board Streaming. Rules live in [
 
 ## Status
 
-Nothing below is implemented except the installable `football_fatigue` package marker and its import test (Milestone 0). **Every component is planned.** No data contract is finalized: file schemas, sampling frequency, units, coordinate system, and clocks are unverified. No frontend framework or transport (file, API, streaming) has been chosen.
+**Implemented:** the installable `football_fatigue` package (Milestone 0) and a metadata-only **discovery and inventory** module, `football_fatigue.inventory` (Milestone 1A, pending final independent review). It lists files and sizes under a configurable raw root, classifies them from directory context and strict file names, keeps every Event Data version separate without selecting one, reports missing, duplicate, unrecognised, and skipped (symlink/junction) entries, and fails explicitly on an incomplete scan or a linked root. It never opens file contents.
+
+**Planned (not implemented):** ingestion, content and schema validation, checksum/provenance manifests, preprocessing, synchronization, analytics, playback, and the tactical board. The inventory proves only that files exist; it does not check that an ID in a file name matches the file's content. No data contract is finalized: file schemas, sampling frequency, units, coordinate system, and clocks are unverified. No frontend framework or transport (file, API, streaming) has been chosen.
 
 ## Data flow (planned)
 
@@ -25,11 +27,11 @@ flowchart LR
 
 Solid boxes are the planned Task 2 path. Raw data flows only one way; nothing writes back to `data/raw`.
 
-## Components (all planned)
+## Components (discovery and inventory is implemented at file level; all others are planned)
 
 | Component | Responsibility | Must not |
 | --- | --- | --- |
-| Discovery and inventory | Find source files for any supplied match ID under a configurable data root; list files, sizes, checksums; report missing, duplicate, or multi-version candidates; relate match files to global reference files | Rename or edit sources; hardcode a match ID or path; pick among ambiguous candidates silently |
+| Discovery and inventory (file names and sizes implemented; checksums and relating files to global reference files planned) | Find source files for any supplied match ID under a configurable data root; list files, sizes, checksums; report missing, duplicate, or multi-version candidates; relate match files to global reference files | Rename or edit sources; hardcode a match ID or path; pick among ambiguous candidates silently |
 | Ingestion | Read verified source formats into in-memory structures | Compute metrics; rewrite sources |
 | Validation | Verify structure, identifiers, periods, timestamps, frequency, units, coordinates, completeness; produce a findings report | Silently repair invalid input |
 | Preprocessing | Produce documented derived representations in an optimized storage format (format not yet chosen) | Modify originals; hide missingness |

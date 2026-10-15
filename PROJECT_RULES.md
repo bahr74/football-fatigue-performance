@@ -5,7 +5,9 @@ This is the authoritative rules document for developers and coding agents (Claud
 ## Milestones
 
 - **Milestone 0 (complete):** repository foundation: documentation, installable package, import test, CI.
-- **Milestone 1 (next, requires explicit authorization):** dataset discovery and multi-match inventory.
+- **Milestone 1 (in progress, requires explicit authorization for each part):**
+  - **1A, dataset discovery and metadata-only inventory:** implemented (`football_fatigue.inventory`: file names and sizes only), pending final independent review. It is not a schema, content, or checksum validation.
+  - **1B, schema audit (next):** not started. Content parsing, checksums, authoritative Event Data version selection, and licensing verification remain open, so Milestone 1 as a whole is not complete.
 - Roadmap steps (see [README.md](README.md)) are done one at a time. Do not begin a later step, or add code, modules, or dependencies for it, without authorization. Documentation-only tasks must not change code, tests, dependencies, data, or Git state.
 
 ## Scientific and data integrity

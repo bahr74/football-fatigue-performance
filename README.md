@@ -11,14 +11,30 @@ Repository: <https://github.com/bahr74/football-fatigue-performance>
 | Area | Status |
 | --- | --- |
 | Repository foundation: installable `football_fatigue` package, import test, CI, documentation | **Implemented** (Milestone 0) |
-| Dataset discovery and multi-match inventory | Planned (next, Milestone 1) |
-| Schema inspection, ingestion, validation, preprocessing | Planned |
+| Dataset discovery and multi-match inventory (file names and sizes only) | **Implemented** (Milestone 1A, pending final independent review) |
+| Schema inspection (next, Milestone 1B), ingestion, content validation, checksums, preprocessing | Planned |
 | Tracking–event synchronization | Planned |
 | Interactive 2D tactical board | Planned |
 | Movement analytics (distance, speed, acceleration, workload indicators where scientifically supported) | Planned |
 | Video detection/tracking, ball trajectories, out-of-frame estimation, wearables/physiology, fatigue prediction, injury-risk research, genetics | Future, not started, no code |
 
-The package currently contains only a package marker. No dataset parsing, backend, frontend, analytics, or model exists.
+The package contains the metadata-only dataset inventory (`football_fatigue.inventory`) and nothing else. No file contents are parsed, and no schema validation, checksums, backend, frontend, analytics, or model exists.
+
+## Dataset inventory
+
+`football_fatigue.inventory` scans a raw-data root and reports which files exist for each match. It reads only directory listings and file sizes; it never opens, decompresses, hashes, or modifies a file, and it does not choose an authoritative Event Data version. Files are classified from their directory context (download folder name, optional bare inner folder of the same name, and for events the version subfolder) and a strict file name, not by extension alone. Conflicting family folders, nested download wrappers, and other unsupported nesting are reported as unrecognised files and never counted toward match coverage.
+
+```powershell
+.\.venv\Scripts\python.exe -m football_fatigue.inventory                       # scan data/raw (default)
+.\.venv\Scripts\python.exe -m football_fatigue.inventory D:\path\to\raw        # other root
+.\.venv\Scripts\python.exe -m football_fatigue.inventory --match 3812          # one match
+.\.venv\Scripts\python.exe -m football_fatigue.inventory --format json         # machine-readable
+```
+
+- **Text report:** match count, per-modality coverage, event versions with per-version coverage, specifications, global reference files, then issues grouped as missing files, duplicate or ambiguous candidates, unrecognised files, and skipped entries. `--match` lists that match's files per modality and event version.
+- **JSON report:** the same summary plus a `files` list (relative path, kind, size in bytes, match ID, event version, classification note) and per-match files. The Event Data root version is `{"root": true, "name": null}`, which is distinct from a real folder named `(root)`. `--match` JSON includes `scan_wide_issue_count` for issues not tied to a match.
+- **Exit codes:** `0` scan completed (issues, if any, are in the report); `2` the root is not a directory; `3` the scan failed (unreadable directory or file metadata, or the root is a symlink/junction), in which case nothing is printed to stdout and an error list goes to stderr.
+- **Links:** symbolic links and Windows junctions are never followed or counted as dataset files; they are reported as skipped entries. A scan root that is itself a link is rejected.
 
 ## Dataset
 
@@ -43,8 +59,8 @@ Activation is optional; invoking the environment's interpreter directly works. U
 
 | Path | Purpose |
 | --- | --- |
-| `src/football_fatigue/` | Python package (currently a package marker only) |
-| `tests/` | Tests (currently an installed-package check) |
+| `src/football_fatigue/` | Python package (currently the metadata-only dataset inventory) |
+| `tests/` | Tests (installed-package check and synthetic inventory tests; no dataset required) |
 | `docs/` | [Architecture](docs/architecture.md) and [data policy](docs/data_policy.md) |
 | `data/raw/` | Original dataset, immutable, ignored by Git |
 | `data/processed/` | Reproducible derived data, ignored by Git |
