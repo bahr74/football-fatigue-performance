@@ -1,36 +1,61 @@
 # Task 2 architecture
 
-## Foundation status
+Scope: Task 2, Software Architecture & Tactical Board Streaming. Rules live in [PROJECT_RULES.md](../PROJECT_RULES.md); this document describes design intent.
 
-Milestone 0 establishes an installable Python package and collaboration conventions. There is no application logic or data contract yet. No assumptions about the dataset schema, sampling rate, coordinates, or event clock have been validated.
+## Status
 
-## Responsibility boundaries
+Nothing below is implemented except the installable `football_fatigue` package marker and its import test (Milestone 0). **Every component is planned.** No data contract is finalized: file schemas, sampling frequency, units, coordinate system, and clocks are unverified. No frontend framework or transport (file, API, streaming) has been chosen.
 
-| Responsibility | Future responsibility | Must not own |
+## Data flow (planned)
+
+```mermaid
+flowchart LR
+    RAW[("data/raw<br/>immutable source files")] --> DISC[Discovery and inventory]
+    DISC --> ING[Ingestion<br/>tracking, events, rosters, metadata]
+    ING --> VAL[Validation and quality report]
+    VAL --> PRE[Preprocessing]
+    PRE --> PROC[("data/processed<br/>per match, per version")]
+    PROC --> SYNC[Tracking-event synchronization]
+    SYNC --> PLAY[Playback model<br/>time, seek, speed, event navigation]
+    PLAY --> BOARD[2D tactical board]
+    PROC --> ANA[Movement analytics]
+    SYNC --> ANA
+    ANA -.-> PLAY
+```
+
+Solid boxes are the planned Task 2 path. Raw data flows only one way; nothing writes back to `data/raw`.
+
+## Components (all planned)
+
+| Component | Responsibility | Must not |
 | --- | --- | --- |
-| Ingestion | Discover original files by match ID; read validated source formats | Metric calculation or rewriting sources |
-| Validation | Verify structure, identifiers, units, clocks, coordinates, and completeness | Silent repair of invalid input |
-| Preprocessing | Produce documented derived representations | Modifying originals or concealing missingness |
-| Synchronization | Establish explicit tracking/event timeline mappings | Assuming identical clocks or period conventions |
-| Analytics | Calculate documented metrics from validated inputs | Inventing physiological labels |
-| Playback | Consume prepared positions and synchronized events for a later board | Parsing original dataset files inside UI code |
+| Discovery and inventory | Find source files for any supplied match ID under a configurable data root; list files, sizes, checksums; report missing, duplicate, or multi-version candidates; relate match files to global reference files | Rename or edit sources; hardcode a match ID or path; pick among ambiguous candidates silently |
+| Ingestion | Read verified source formats into in-memory structures | Compute metrics; rewrite sources |
+| Validation | Verify structure, identifiers, periods, timestamps, frequency, units, coordinates, completeness; produce a findings report | Silently repair invalid input |
+| Preprocessing | Produce documented derived representations in an optimized storage format (format not yet chosen) | Modify originals; hide missingness |
+| Synchronization | Build explicit, documented tracking-to-event time mappings, handling periods and stoppages | Assume identical clocks or period conventions |
+| Analytics | Documented movement metrics (distance, speed, acceleration, workload indicators) from validated inputs, with stated assumptions and uncertainty | Label tracking-derived metrics as physiological fatigue |
+| Playback | Time-indexed access to positions and events: play/pause, seek, speed, event jumps | Parse raw files; embed analytics |
+| Tactical board | 2D rendering of players and ball, consuming the playback interface | Own ingestion logic |
 
-These are design boundaries, not modules to create now. Implement ordinary Python functions/classes as needed before introducing services or plugin frameworks.
+These are responsibility boundaries, not modules to create now. Add plain Python functions or classes when a milestone implements the behavior, before introducing services or plugin frameworks.
 
-## Multiple matches and source discovery
+## Multi-match design
 
-Future entry points must accept a match ID and configurable data root. `3812` is a development example only. Preserve the dataset's original directory hierarchy and filenames when placing it under the local raw root. Inventory its actual naming conventions and discover the corresponding tracking, event, roster, and metadata files without renaming them. Resolve global reference files separately. Fail clearly on missing files or multiple unresolved candidates.
+Entry points take a match ID and a data root. Match `3812` is the initial development sample only. The observed local layout (see [data_policy.md](data_policy.md)) suggests match files are keyed by ID across separate source folders, with some matches covered by fewer modalities and some having several versions of an event file; discovery must model modality availability and version ambiguity explicitly rather than assume completeness. Derived output may use a project-owned layout such as `data/processed/<match-id>/<processing-version>/` (an example, not a source schema), and each run records source hashes, configuration, software version, validation findings, and outputs.
 
-Do not prescribe source extensions, column names, or source subdirectories before inspection. Derived artifacts may later use a project-owned layout such as `data/processed/<match-id>/<processing-version>/`; this example is not a source dataset schema. Each run should identify its source files/hashes, configuration, software version, validation findings, and outputs.
+## Synchronization and coordinates
 
-## Synchronization and coordinate decisions
+Before synchronization, verify time units, period resets, stoppages, timestamp origins, event precision, and tracking coverage. Before distances, speeds, or rendering, verify coordinate units, pitch dimensions, origin, axes, and attacking direction by period. Document every transformation and retain links to the original time and position values.
 
-Before synchronization, verify time units, period resets, stoppages, timestamp origins, event precision, and tracking coverage. Before distances or pitch rendering, verify coordinate units, pitch dimensions, origin, axes, and team direction by period. Document any transformation and retain links to original time and position values.
+## Future extension points (not implemented, no code or stubs)
 
-## Future integrations
+- **Video detection/tracking, ball trajectory analysis, out-of-frame position estimation:** would add a new ingestion source and its own time mapping into synchronization. No video exists today.
+- **Wearable and physiological data:** separate validated ingestion plus subject and time alignment; the prerequisite for any genuine fatigue indicator.
+- **Fatigue prediction, injury-risk research, genetics:** separate research scopes consuming validated outputs, with leakage-safe splits and stated limits.
 
-Video CV and physiological inputs will have their own validated ingestion and time mapping. Neither is available now. Keep domain calculations independent of future transport/UI choices, allowing a tactical board to consume prepared match data without embedding ingestion logic. Prediction, injury-risk modeling, and genetics remain separate future research scopes.
+Keep domain logic independent of transport and UI choices so a frontend can be selected later without touching ingestion or analytics.
 
-## Next milestone gate
+## Next gate
 
-After authorization and lawful data access: inventory actual files, verify provenance and schemas, identify match/global relationships, and document unknowns. Only then approve a concrete ingestion design and meaningful data tests.
+After authorization (Milestone 1): inventory actual files across matches, record provenance and checksums, inspect schemas starting with match 3812 and cross-check others, document match/global relationships and unknowns. Only then approve an ingestion design and data tests.

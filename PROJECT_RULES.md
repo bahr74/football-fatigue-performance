@@ -1,35 +1,46 @@
 # Shared project rules
 
-These rules apply to developers and coding agents. Follow the current authorized task scope; clarify conflicts or changes in scope before taking dependent actions.
+This is the authoritative rules document for developers and coding agents (Claude Code, Codex). `CLAUDE.md` and `AGENTS.md` point here and must not weaken or duplicate it. Follow the currently authorized milestone; clarify conflicts or scope changes before taking dependent actions.
+
+## Milestones
+
+- **Milestone 0 (complete):** repository foundation: documentation, installable package, import test, CI.
+- **Milestone 1 (next, requires explicit authorization):** dataset discovery and multi-match inventory.
+- Roadmap steps (see [README.md](README.md)) are done one at a time. Do not begin a later step, or add code, modules, or dependencies for it, without authorization. Documentation-only tasks must not change code, tests, dependencies, data, or Git state.
 
 ## Scientific and data integrity
 
-- Preserve original dataset directories, filenames, and file contents. Never rename, edit, or overwrite sources to suit a parser.
-- Record source location, acquisition date, licensing/access terms, file inventory, and checksums when data is obtained. Access to a shared folder does not establish redistribution rights.
-- Discover matching files by a supplied match ID after validating actual filename conventions and metadata. Handle absent or ambiguous matches explicitly. Do not hardcode `3812` into processing logic.
-- Validate actual schemas, entity identifiers, periods, timestamps, sampling frequency, units, coordinate origin/orientation, and missingness before transformations or metrics.
-- Do not invent fields, substitute assumed frequencies, silently resample, or infer undocumented clock alignment. Record uncertainty and unresolved assumptions.
-- Keep missing values distinct from zero. Record exclusions, interpolation, transformations, and validation failures.
-- Separate original global references from match-specific records; validate their relationships instead of assuming a folder layout.
-- Tracking and tactical metrics are not validated physiological fatigue labels. Do not present exploratory genetics or biomarkers as deterministic fatigue or injury predictors.
-- Distinguish measured results, hypotheses, and recommendations. Report exactly which checks ran and their limits.
+- **Raw immutability.** `data/raw/` is read-only in practice. Never rename, edit, move, re-encode, decompress in place, or overwrite source files or their folder names (including timestamp suffixes) to suit a parser.
+- **Provenance.** Record source, acquisition date, licensing/access terms, file inventory, and checksums. Access to a shared folder does not establish redistribution rights.
+- **No fabrication.** Do not invent schemas, fields, units, sampling rates, coordinate conventions, or measurements. A statement about the data is "verified" only if the relevant file was actually inspected; otherwise label it unverified or observed-only.
+- **Validate before transforming.** Check structure, identifiers, periods, timestamps, sampling frequency, units, coordinate origin/orientation, and missingness before any transformation or metric.
+- **Match IDs.** Discover files by a supplied match ID after validating actual naming and metadata. Never hardcode `3812`. Handle absent, duplicate, or ambiguous files (including multiple versions of a file) explicitly; do not pick one silently.
+- **Missing data and uncertainty.** Keep missing distinct from zero. Do not silently resample, interpolate, drop, or assume clock alignment. Record every exclusion, interpolation, transformation, and validation failure, and carry uncertainty into outputs.
+- **Global references** (competitions, players, change logs, specifications) stay separate from match-specific records; validate their relationships rather than assuming them.
+- **Tracking is not fatigue measurement.** Positional tracking and derived movement metrics (distance, speed, acceleration, workload indicators) are not validated physiological fatigue labels. Do not present them, or exploratory biomarkers/genetics, as deterministic fatigue or injury predictors. Distinguish measured results, hypotheses, and recommendations, and state limits.
 
 ## Engineering
 
-- Separate ingestion, validation, preprocessing, synchronization, analytics, and playback responsibilities. Add modules when they implement approved behavior, not as empty future stubs.
-- Accept configurable data roots and match IDs. Do not embed machine-specific absolute paths in reusable Python code.
-- Write derived data separately, grouped by match and processing version; record source hashes, parameters, software versions, and transformation provenance.
-- Make processing reproducible and deterministic where applicable; explicitly control random seeds if randomness is introduced.
-- Avoid silent overwrite of prior artifacts. Keep global references and cross-match state from leaking into unrelated matches.
-- Start with minimal dependencies. Add a dependency only for a demonstrated requirement, with compatible versions documented.
-- Test meaningful behavior and failure cases. Small fixtures must be verified, legally shareable, and free of secrets. Synthetic fixtures must be clearly identified and must not masquerade as real source schemas.
-- Current Milestone 0 includes documentation, packaging, an import test, CI, environment setup, and local Git only. No dataset download, parser, data processing, frontend, backend, analytics, or ML implementation is authorized.
+- **Modular boundaries:** ingestion, validation, preprocessing, synchronization, analytics, and playback are separate responsibilities (see [docs/architecture.md](docs/architecture.md)). Add modules only for approved, implemented behavior; no empty stubs.
+- Accept configurable data roots and match IDs; no machine-specific absolute paths in reusable code.
+- Write derived data separately from raw, grouped by match and processing version, with source hashes, parameters, software versions, and transformation provenance. Never silently overwrite prior outputs. Keep cross-match state from leaking between matches.
+- Make processing deterministic and reproducible; control random seeds if randomness is introduced.
+- Keep dependencies minimal; add one only for a demonstrated need, with a compatible version range.
+- Test meaningful behavior and failure cases. Fixtures must be small, legally shareable, secret-free, and synthetic ones clearly labelled so they do not masquerade as real source schemas.
+- Follow existing conventions, keep changes small and focused, and report only checks that actually ran. Never claim tests passed unless they were executed.
 
-## Repository and collaboration
+## Security and Git hygiene
 
-- Keep raw, processed, and external datasets, environments, credentials, caches, and generated outputs out of Git. Review staged changes; ignore rules alone are not a security or size guarantee.
-- Clear notebook outputs before committing and inspect notebooks for embedded data and secrets. Keep only approved small reference documents in Git.
-- Preserve existing files and directories. Do not perform destructive cleanup, reset history, or overwrite unrelated work.
-- Use short-lived branches, focused commits, and PRs reviewed by another developer. Run appropriate checks and state any untested behavior.
-- Do not create or modify remote repositories, add remotes, push, or change GitHub settings without explicit authorization. Keep authentication material outside project files.
-- For later prediction work, prevent subject/match leakage and document validation splits and scientific limitations before claiming predictive performance.
+- Keep datasets, environments, credentials, caches, and generated outputs out of Git. Ignore rules are not a guarantee: review staged changes and sizes.
+- Never commit or print secrets or tokens. Keep authentication material outside project files.
+- No raw dataset (or copy or sample of it) in the repository, tests, `references/`, notebooks, or PRs unless redistribution rights are verified and approved.
+- Clear notebook outputs and inspect for embedded data before committing.
+- Do not delete, reset, or overwrite unrelated work; no destructive cleanup without approval.
+
+## Manual Git operations
+
+All Git operations that modify repository state (add, commit, push, pull, merge, rebase, branch creation or switching, tag, stash, reset, remote changes) are performed manually by the user. Agents may run read-only commands (`status`, `diff`, `log`, `branch --show-current`, `check-ignore`) and may prepare suggested commit messages and PR text, but must not execute state-changing Git or GitHub commands, or change GitHub settings, unless the user explicitly asks in that instance. Workflow: short-lived feature branches from `main`, focused commits, PRs reviewed by another developer, squash merge, no force-push to `main`.
+
+## Later research
+
+For prediction work, prevent subject/match leakage, document validation splits, and state scientific limitations before claiming performance. Video, wearable/physiological, injury-risk, and genetics work each need their own validated ingestion, time mapping, and authorization.
