@@ -43,3 +43,4 @@ client_secret*.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+.claude/settings.local.json
