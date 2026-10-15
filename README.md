@@ -15,6 +15,7 @@ Repository: <https://github.com/bahr74/football-fatigue-performance>
 | Schema audit and proposed data contracts (documentation plus read-only reproducible audit scripts in [scripts/audit](scripts/audit/README.md): [dataset schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), [data contracts](docs/data_contracts.md)) | **Implemented** (Milestone 1B, pending independent review; not formally complete; version policy and contracts are provisional) |
 | Production streaming ingestion and quality reporting (`football_fatigue.ingestion`) | **Implemented** (Milestone 2A, pending independent review) |
 | Event-to-tracking temporal synchronization (`football_fatigue.synchronization`) | **Implemented** (Milestone 2B, pending independent review) |
+| Unified match data interface with explicit coordinate states and policy (`football_fatigue.match_data`) | **Implemented** (Milestone 2C, pending independent review) |
 | Checksums/provenance manifest, preprocessing | Planned |
 | Tracking–event synchronization | Planned |
 | Interactive 2D tactical board | Planned |
@@ -22,6 +23,33 @@ Repository: <https://github.com/bahr74/football-fatigue-performance>
 | Video detection/tracking, ball trajectories, out-of-frame estimation, wearables/physiology, fatigue prediction, injury-risk research, genetics | Future, not started, no code |
 
 The package contains the metadata-only dataset inventory (`football_fatigue.inventory`) and nothing else. The package parses no file contents, and no schema validation, checksums, backend, frontend, analytics, or model exists. The Milestone 1B audit's key quantitative findings are reproducible with the read-only scripts in `scripts/audit/`; they are audit tooling, not an ingestion or synchronization implementation.
+
+## Unified match data interface (Milestone 2C)
+
+`football_fatigue.match_data.MatchData` is the single entry point for downstream consumers (tactical playback, analytics). It composes the ingestion and synchronization APIs; it adds no parser and no alignment logic.
+
+```python
+from football_fatigue.ingestion import EventVersion
+from football_fatigue.match_data import MatchData, CoordinatePolicy
+
+md = MatchData.open("data/raw", "3812", EventVersion.ROOT, policy=CoordinatePolicy.RAW)   # version and policy are explicit
+md.metadata, md.roster, md.events()               # cheap: the tracking file is not read
+for pf in md.frames():                            # lazy, source order, bounded memory; no frame is ever manufactured
+    pf.frame.frame_num, pf.frame.video_time_s, pf.frame.source_period, pf.frame.source_record_indices
+    for p in pf.players:
+        p.raw, p.smoothed, p.selected             # three views: raw measurement, source-supplied smoothed, policy choice
+        p.position_usable, p.identity_usable, p.caveats
+    pf.ball.selected                              # None coordinates stay None
+md.synchronize(); md.unmatched_events()           # every event preserved; unmatched ones are never hidden
+for pf in md.frames(attach_events=True):          # reads tracking twice (synchronization first); matched events appear at pf.events
+    ...
+```
+
+- **Coordinate states:** every raw or smoothed coordinate is `available`, `missing` (never replaced by a number, never `(0, 0)`), or `ambiguous` (conflicting duplicate raw jerseys, conflicting smoothed candidates, several raw balls, or repeated records that disagree: the candidates are kept, none is chosen, and the 2A policy that a conflicting repeated-frame smoothed ball is unresolved is preserved).
+- **Selection policy (explicit, no default surprises):** `RAW` (default, the evidence layer), `SMOOTHED` (supplied smoothed only, no fallback), `SMOOTHED_THEN_RAW` (raw is used only when smoothed is not available, and is labelled `raw_fallback` with the reason and a caveat). Nothing is interpolated, extrapolated, smoothed, or invented.
+- **Usability, precisely:** `position_usable` = the selected coordinate is present, finite, free of an unresolved conflict, and the frame's source period is 1-4. `identity_usable` = the team/player attribution was resolved through the roster join and not quarantined (sides are never swapped). Neither means physically validated: `ESTIMATED` positions, low jersey confidence, and the tracking system's own error remain and are listed in `caveats`.
+- **Quality and playback contract:** `md.quality_summary(max_frames=None, include_synchronization=False)` is an explicit, never-automatic streaming scan whose result states the scan status (`complete`, `partial`, `failed`; period absence is asserted only for a complete scan) and the count, denominator, and unit of every metric. `PreparedFrame`, `PreparedPlayer`, `PreparedBall`, `COORDINATE_SYSTEM` (pitch-centre meters), and the attached `AlignmentResult`s are the documented consumer-facing representation. Developer guide with executable examples: [docs/team_handoff.md](docs/team_handoff.md).
+- **Cost:** `frames()` streams with bounded memory; `attach_events=True` or `synchronize()` adds one full tracking pass (about 80 s for a whole match) and O(events) memory. Event-to-frame results keep temporal coverage, coordinate agreement, and (never assessed) validated correspondence separate; see the synchronization section.
 
 ## Event-to-tracking synchronization (Milestone 2B)
 
@@ -113,9 +141,10 @@ Activation is optional; invoking the environment's interpreter directly works. U
 | `src/football_fatigue/` | Python package (currently the metadata-only dataset inventory) |
 | `tests/` | Tests (installed-package check, synthetic inventory tests, and synthetic tests of the audit verification logic; no dataset required) |
 | `src/football_fatigue/ingestion/` | Milestone 2A loaders, canonical models, and quality reports (see below) |
+| `src/football_fatigue/match_data.py` | Milestone 2C unified match data interface (see above) |
 | `src/football_fatigue/synchronization.py` | Milestone 2B event-to-tracking temporal alignment (see above) |
 | `scripts/audit/` | Read-only Milestone 1B audit verification scripts (not production code); see its README for reproduction commands |
-| `docs/` | [Architecture](docs/architecture.md), [data policy](docs/data_policy.md), and the Milestone 1B [schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), and proposed [data contracts](docs/data_contracts.md) |
+| `docs/` | [Team handoff guide](docs/team_handoff.md), [Architecture](docs/architecture.md), [data policy](docs/data_policy.md), and the Milestone 1B [schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), and proposed [data contracts](docs/data_contracts.md) |
 | `data/raw/` | Original dataset, immutable, ignored by Git |
 | `data/processed/` | Reproducible derived data, ignored by Git |
 | `data/external/` | Other external data, ignored by Git |

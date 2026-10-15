@@ -10,6 +10,8 @@ Scope: Task 2, Software Architecture & Tactical Board Streaming. Rules live in [
 
 **Also implemented (Milestone 2B, pending independent review):** `football_fatigue.synchronization`, the synchronization component below, as a one-pass streaming temporal join of event rows to tracking frames under the provisional 1B alignment policy, with temporal, spatial, and validated claims kept separate.
 
+**Also implemented (Milestone 2C, pending independent review):** `football_fatigue.match_data`, the single downstream entry point over ingestion and synchronization, with explicit coordinate states, an explicit coordinate policy, and usability indicators that do not claim physical validation. It also provides explicit quality summaries and the consumer-facing frame representation that tactical playback should use ([team_handoff.md](team_handoff.md)); it streams tracking frames with bounded memory and never assumes continuous frame coverage.
+
 **Planned (not implemented):** checksum/provenance manifests, preprocessing, synchronization, analytics, playback, and the tactical board. The inventory proves only that files exist; it does not check that an ID in a file name matches the file's content. No data contract is finalized: the Milestone 1B audit documented the schemas, frame rate, units, coordinate system, and clocks (see [dataset_schema_audit.md](dataset_schema_audit.md)) and proposes provisional contracts in [data_contracts.md](data_contracts.md), pending independent review. No frontend framework or transport (file, API, streaming) has been chosen.
 
 ## Data flow (planned)
