@@ -14,6 +14,7 @@ Repository: <https://github.com/bahr74/football-fatigue-performance>
 | Dataset discovery and multi-match inventory (file names and sizes only) | **Implemented** (Milestone 1A, pending final independent review) |
 | Schema audit and proposed data contracts (documentation plus read-only reproducible audit scripts in [scripts/audit](scripts/audit/README.md): [dataset schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), [data contracts](docs/data_contracts.md)) | **Implemented** (Milestone 1B, pending independent review; not formally complete; version policy and contracts are provisional) |
 | Production streaming ingestion and quality reporting (`football_fatigue.ingestion`) | **Implemented** (Milestone 2A, pending independent review) |
+| Event-to-tracking temporal synchronization (`football_fatigue.synchronization`) | **Implemented** (Milestone 2B, pending independent review) |
 | Checksums/provenance manifest, preprocessing | Planned |
 | Tracking–event synchronization | Planned |
 | Interactive 2D tactical board | Planned |
@@ -21,6 +22,30 @@ Repository: <https://github.com/bahr74/football-fatigue-performance>
 | Video detection/tracking, ball trajectories, out-of-frame estimation, wearables/physiology, fatigue prediction, injury-risk research, genetics | Future, not started, no code |
 
 The package contains the metadata-only dataset inventory (`football_fatigue.inventory`) and nothing else. The package parses no file contents, and no schema validation, checksums, backend, frontend, analytics, or model exists. The Milestone 1B audit's key quantitative findings are reproducible with the read-only scripts in `scripts/audit/`; they are audit tooling, not an ingestion or synchronization implementation.
+
+## Event-to-tracking synchronization (Milestone 2B)
+
+`football_fatigue.synchronization` aligns each event row of one **explicitly named** event version to the match's tracking frames by video time. It applies the alignment policy validated in Milestone 1B and never interpolates, extrapolates, or invents frames or positions.
+
+```python
+from football_fatigue.ingestion import Dataset, EventVersion
+from football_fatigue.synchronization import synchronize_match
+
+sync = synchronize_match(Dataset("data/raw"), "3812", EventVersion.ROOT, spatial=False)   # one streaming tracking pass
+for a in sync.alignments:                      # one AlignmentResult per event row, source order, none dropped
+    if a.status.value == "matched":
+        a.frame_num, a.residual_s, a.frame_source_record_indices
+    else:
+        a.reason                               # UnmatchedReason
+print(sync.summary())                          # counts, reasons, residuals, tracking period ranges, scan_complete
+```
+
+- **Policy (provisional):** event `event_time_s` vs frame `video_time_s`; only frames of the **same canonical period**; the nearest frame wins, exact ties go to the **earlier** frame; the single maximum residual is one frame interval (`1 / fps` from the metadata, or an explicit `tolerance_s`); no extrapolation.
+- **Result model:** `AlignmentResult` carries the event provenance (row id, version, source row index, source reference, source and canonical period, event quality flags), the temporal result (`MatchStatus`, `UnmatchedReason`, signed `residual_s`, `tolerance_s`), the selected frame's provenance (frame number, video time, period, source reference, **all** source record indices, frame quality flags), `temporal_notes` (`NEAR_PERIOD_BOUNDARY`), a separate `SpatialAssessment`, and `validated_correspondence = "not_assessed"`. `quality_label` is `unmatched`, `temporal_only`, `coordinate_agreeing`, or `temporal_only_coordinates_disagree`; it never says "validated".
+- **Unmatched reasons:** `missing_event_time`, `invalid_source_period` (the source period is kept next to a `None` canonical period), `no_tracking_for_period` (for example event-only extra time), `outside_period_frame_range`, `no_frame_within_tolerance`, `period_label_differs_from_nearest_frame`, and `tracking_scan_incomplete` (the tracking stream failed: no absence is claimed and the error is kept in `fatal_error`). Frames that go backwards in time set `ordering_violation` and make every tracking-dependent result `tracking_scan_incomplete`. Events and frames of another match, or events of another version than requested, are rejected with a `SynchronizationError` (an `IngestionError`).
+- **Three separate claims:** temporal coverage (`MATCHED`), coordinate agreement (`spatial=True`: the event's embedded coordinates against the frame's *raw* positions, tolerance 0.01 m, at least 90 % of at least 11 players; quarantined players, frames whose repeated records conflict, malformed values, and (side, jersey) groups with conflicting duplicate coordinates on either side are excluded, independent of entry order; nothing is corrected, and the known ten-match event-coordinate discrepancies appear as `coordinate_disagreeing`), and validated physical correspondence (not assessed; it needs independent ground truth such as video).
+- **Performance:** tracking is consumed once in file order with O(1) frame memory; events are buffered (O(E), plus O(E x players) with `spatial=True`) and each frame touches only the events within one tolerance, so time is O(F + E log E). A whole match took about 75-80 s in the smoke tests.
+- **Limitations:** the one-frame tolerance is a temporal-coverage rule, not an accuracy claim (event times coincide with the frame grid to about 0.25 ms in the audit, which shows grid agreement, not physical timing); no identity swap or correction is applied for the suspected extra-time side anomaly; a tracking error leaves the unsettled events as `tracking_scan_incomplete` rather than guessing.
 
 ## Ingestion (Milestone 2A)
 
@@ -87,7 +112,8 @@ Activation is optional; invoking the environment's interpreter directly works. U
 | --- | --- |
 | `src/football_fatigue/` | Python package (currently the metadata-only dataset inventory) |
 | `tests/` | Tests (installed-package check, synthetic inventory tests, and synthetic tests of the audit verification logic; no dataset required) |
-| `src/football_fatigue/ingestion/` | Milestone 2A loaders, canonical models, and quality reports (see above) |
+| `src/football_fatigue/ingestion/` | Milestone 2A loaders, canonical models, and quality reports (see below) |
+| `src/football_fatigue/synchronization.py` | Milestone 2B event-to-tracking temporal alignment (see above) |
 | `scripts/audit/` | Read-only Milestone 1B audit verification scripts (not production code); see its README for reproduction commands |
 | `docs/` | [Architecture](docs/architecture.md), [data policy](docs/data_policy.md), and the Milestone 1B [schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), and proposed [data contracts](docs/data_contracts.md) |
 | `data/raw/` | Original dataset, immutable, ignored by Git |
