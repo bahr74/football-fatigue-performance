@@ -7,7 +7,7 @@ name = "football-fatigue"
 version = "0.1.0"
 description = "Repository foundation for Football Fatigue & Performance Prediction"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.14"
 dependencies = []
 
 [project.optional-dependencies]
