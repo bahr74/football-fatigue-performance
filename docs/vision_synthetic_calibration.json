@@ -1,0 +1,12 @@
+{
+  "pitch_length_m": 105.0,
+  "pitch_width_m": 68.0,
+  "ransac_reprojection_threshold_m": 0.25,
+  "is_calibrated": true,
+  "matrix": [
+    [0.09545454545454546, 0.0, -62.04545454545455],
+    [0.0, -0.09714285714285714, 41.714285714285715],
+    [0.0, 0.0, 1.0]
+  ],
+  "fixture_notice": "SYNTHETIC EXAMPLE ONLY. The matrix maps a fictional 1100x700 rectangle to a 105x68m pitch. It is not calibrated to any video or camera and must not be used for measurement."
+}

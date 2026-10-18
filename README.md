@@ -2,7 +2,7 @@
 
 Biomedical Engineering graduation project: a modular football analytics platform that studies player movement, workload, fatigue-related indicators, and potentially injury risk from multiple validated data sources.
 
-Our current responsibility is **Task 2: Software Architecture & Tactical Board Streaming**. With no match video available, the first objective is to reconstruct matches from positional tracking records, synchronized with event data, and replay them on an interactive 2D tactical board.
+Our current responsibility is **Task 2: Software Architecture & Tactical Board Streaming**. The repository includes tracking/event ingestion and synchronization, a tactical playback board, movement analytics, and an experimental computer-vision video tracking module. Video model accuracy and calibration have not yet been validated against licensed ground truth.
 
 Repository: <https://github.com/bahr74/football-fatigue-performance>
 
@@ -16,13 +16,15 @@ Repository: <https://github.com/bahr74/football-fatigue-performance>
 | Production streaming ingestion and quality reporting (`football_fatigue.ingestion`) | **Implemented** (Milestone 2A, pending independent review) |
 | Event-to-tracking temporal synchronization (`football_fatigue.synchronization`) | **Implemented** (Milestone 2B, pending independent review) |
 | Unified match data interface with explicit coordinate states and policy (`football_fatigue.match_data`) | **Implemented** (Milestone 2C, pending independent review) |
-| Checksums/provenance manifest, preprocessing | Planned |
-| Tracking–event synchronization | Planned |
-| Interactive 2D tactical board | Planned |
-| Movement analytics (distance, speed, acceleration, workload indicators where scientifically supported) | Planned |
-| Video detection/tracking, ball trajectories, out-of-frame estimation, wearables/physiology, fatigue prediction, injury-risk research, genetics | Future, not started, no code |
+| Interactive tactical board and playback | **Implemented** (see playback guide below) |
+| Movement and spatial analytics | **Implemented** (movement indicators, observation-count heatmaps, sampled team shape and adjacent-window positional changes; no physiological fatigue labels) |
+| Tactical board analytics overlays and CSV export | **Implemented** (heatmap, current-frame team shape, downloadable derived report) |
+| Tactical metrics: PC, EPV, OBSO, DAS | **Definitions and data requirements documented; no scores published yet** ([Stage 5 guide](docs/stage_5_tactical_metrics.md)). The current CV demo lacks validated pitch coordinates, team identity and possession inputs. |
+| Experimental CV video detection, tracking, pitch homography, JSONL outputs | **Implemented, unvalidated on real footage** ([CV guide](docs/vision_module.md)) |
+| Source dataset checksums/provenance manifest, preprocessing | Planned |
+| Validated video detection/tracking, 3D ball trajectories, out-of-frame estimation, wearables/physiology, fatigue prediction, injury-risk research, genetics | Future or research; no validated CV model or physiological prediction |
 
-The package contains the metadata-only dataset inventory (`football_fatigue.inventory`) and nothing else. The package parses no file contents, and no schema validation, checksums, backend, frontend, analytics, or model exists. The Milestone 1B audit's key quantitative findings are reproducible with the read-only scripts in `scripts/audit/`; they are audit tooling, not an ingestion or synchronization implementation.
+The package includes inventory, ingestion, synchronization, analytics, playback, and experimental video tracking. No computer-vision model was trained or fine-tuned on project data, and no real-footage CV accuracy has been measured. Existing vision tests use synthetic fixtures. The Milestone 1B audit's key quantitative findings are reproducible with the read-only scripts in `scripts/audit/`; they are audit tooling, not production ingestion or synchronization.
 
 ## Unified match data interface (Milestone 2C)
 
@@ -134,17 +136,20 @@ py -3.12 -m venv .venv
 
 Activation is optional; invoking the environment's interpreter directly works. Use your own Python 3.12 if `py` is unavailable. Do not commit or copy environments.
 
+For the optional video pipeline, install its dependencies with `.\.venv\Scripts\python.exe -m pip install --no-cache-dir -e ".[dev,vision]"`. A compatible football detector checkpoint, video, and calibration are supplied separately. See [docs/vision_module.md](docs/vision_module.md) for calibration, example command, outputs, and validation requirements.
+
 ## Repository structure
 
 | Path | Purpose |
 | --- | --- |
-| `src/football_fatigue/` | Python package (currently the metadata-only dataset inventory) |
-| `tests/` | Tests (installed-package check, synthetic inventory tests, and synthetic tests of the audit verification logic; no dataset required) |
+| `src/football_fatigue/` | Python package: inventory, ingestion, synchronization, analytics, playback, and experimental CV |
+| `tests/` | Synthetic and contract tests; CV tests do not establish real-footage accuracy |
 | `src/football_fatigue/ingestion/` | Milestone 2A loaders, canonical models, and quality reports (see below) |
 | `src/football_fatigue/match_data.py` | Milestone 2C unified match data interface (see above) |
 | `src/football_fatigue/synchronization.py` | Milestone 2B event-to-tracking temporal alignment (see above) |
 | `scripts/audit/` | Read-only Milestone 1B audit verification scripts (not production code); see its README for reproduction commands |
 | `docs/` | [Team handoff guide](docs/team_handoff.md), [Architecture](docs/architecture.md), [data policy](docs/data_policy.md), and the Milestone 1B [schema audit](docs/dataset_schema_audit.md), [event version comparison](docs/event_version_comparison.md), and proposed [data contracts](docs/data_contracts.md) |
+| `docs/vision_module.md` | CV module capabilities, calibration, sample-video run instructions, outputs, and validation checklist |
 | `data/raw/` | Original dataset, immutable, ignored by Git |
 | `data/processed/` | Reproducible derived data, ignored by Git |
 | `data/external/` | Other external data, ignored by Git |
@@ -172,5 +177,9 @@ Directories such as `configs/`, `models/`, `reports/`, `notebooks/`, and `refere
 6. Tracking–event synchronization.
 7. Interactive 2D tactical board: player/ball movement, play/pause, seeking, playback speed, event navigation.
 8. Player movement analytics.
+9. Spatial movement analytics: team shape, observation heatmaps, and positional changes.
+10. Tactical metric implementations only after PC, EPV, OBSO, and DAS definitions and validation criteria are approved; event recognition and VAEP/OBV remain later work.
+
+Stages 9–10 are an authorized extension in progress. Stage 9 is implemented as descriptive tracking analytics and board overlays. Stage 10 has not started because the project does not yet specify the acronym definitions, equations, required event labels, or validation data; no formulas or model outputs are fabricated.
 
 Each step requires explicit authorization before it starts. Later research modules (listed as Future above) will be designed only after the tracking and event foundation is validated.
