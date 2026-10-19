@@ -31,6 +31,9 @@ class MultiObjectTracker:
         iou_threshold: float = 0.25,
         use_supervision: bool = True,
         frame_rate: float = 25.0,
+        track_activation_threshold: float = 0.5,
+        track_buffer: int = 75,
+        matching_threshold: float = 0.95,
     ) -> None:
         if max_lost_frames < 0:
             raise ValueError("max_lost_frames must be non-negative.")
@@ -41,6 +44,11 @@ class MultiObjectTracker:
         self.max_lost_frames = max_lost_frames
         self.iou_threshold = iou_threshold
         self.frame_rate = float(frame_rate)
+        # ByteTrack settings tuned on SoccerTrack 117093 dev clips (see docs/cv_detection_tracking_report.md):
+        # a permissive IoU-distance gate (0.95) suits ~20x45 px players, a 3 s buffer re-links occlusions.
+        self.track_activation_threshold = track_activation_threshold
+        self.track_buffer = track_buffer
+        self.matching_threshold = matching_threshold
         self.next_track_id = 1
         self.tracks: dict[int, ActiveTrack] = {}
         self._supervision_tracker: Any = None
@@ -48,14 +56,17 @@ class MultiObjectTracker:
         if use_supervision:
             try:
                 import supervision as sv
-                self._supervision_tracker = sv.ByteTrack(
-                    track_activation_threshold=0.30,
-                    lost_track_buffer=max_lost_frames,
-                    minimum_matching_threshold=0.75,
-                    frame_rate=self.frame_rate,
-                )
+                self._supervision_tracker = self._new_bytetrack(sv)
             except Exception:
                 self._supervision_tracker = None
+
+    def _new_bytetrack(self, sv: Any) -> Any:
+        return sv.ByteTrack(
+            track_activation_threshold=self.track_activation_threshold,
+            lost_track_buffer=self.track_buffer,
+            minimum_matching_threshold=self.matching_threshold,
+            frame_rate=self.frame_rate,
+        )
 
     @property
     def backend(self) -> str:
@@ -71,12 +82,7 @@ class MultiObjectTracker:
             # the input video's actual temporal sampling.
             import supervision as sv
             self.frame_rate = float(frame_rate)
-            self._supervision_tracker = sv.ByteTrack(
-                track_activation_threshold=0.30,
-                lost_track_buffer=self.max_lost_frames,
-                minimum_matching_threshold=0.75,
-                frame_rate=self.frame_rate,
-            )
+            self._supervision_tracker = self._new_bytetrack(sv)
         else:
             self.frame_rate = float(frame_rate)
 

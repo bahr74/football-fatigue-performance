@@ -59,7 +59,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", required=True, help="New output directory name; existing outputs are never overwritten")
     parser.add_argument("--confidence", type=float, default=0.40)
     parser.add_argument("--imgsz", type=int, default=640, help="YOLO inference image size in pixels (larger can improve small-object recall at higher memory cost)")
+    parser.add_argument("--tile-width", type=int, help="Tiled inference: full-height strips of this width (overlapping), boxes merged by NMS")
+    parser.add_argument("--pitch-keypoints", type=Path, help="Keypoints JSON; detections with feet outside the dilated pitch outline are dropped (image-space mask, not metric calibration)")
+    parser.add_argument("--mask-margin", type=int, default=60)
+    parser.add_argument("--track-activation", type=float, default=0.5, help="ByteTrack high-confidence activation threshold")
+    parser.add_argument("--track-buffer", type=int, default=75, help="ByteTrack lost-track buffer in frames")
+    parser.add_argument("--track-match", type=float, default=0.95, help="ByteTrack IoU-distance matching threshold (higher is more permissive)")
+    parser.add_argument("--half", action="store_true", help="FP16 inference (CUDA only)")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--start-frame", type=int, default=0, help="First source frame to process (timestamps stay absolute)")
     parser.add_argument("--max-frames", type=int)
     parser.add_argument("--max-seconds", type=float, help="Stop after this much decoded video time")
     parser.add_argument("--tracker", choices=("bytetrack", "iou"), default="bytetrack")
@@ -134,7 +142,16 @@ def main(argv: list[str] | None = None) -> int:
                 "max_error_m": max(check_errors),
                 "independent_held_out_points": True,
             }
-        tracker = MultiObjectTracker(use_supervision=args.tracker == "bytetrack")
+        _mask_polygon = None
+        if args.pitch_keypoints is not None:
+            from football_fatigue.vision.calibration import pitch_polygon_from_keypoints
+            _mask_polygon = pitch_polygon_from_keypoints(str(args.pitch_keypoints), args.mask_margin)
+        tracker = MultiObjectTracker(
+            use_supervision=args.tracker == "bytetrack",
+            track_activation_threshold=args.track_activation,
+            track_buffer=args.track_buffer,
+            matching_threshold=args.track_match,
+        )
         if args.tracker == "bytetrack" and tracker.backend != "bytetrack":
             print("error: ByteTrack could not initialize; install the vision extra or select --tracker iou", file=sys.stderr)
             return 2
@@ -142,8 +159,10 @@ def main(argv: list[str] | None = None) -> int:
             calibrator=calibrator,
             detector=YOLOPlayerDetector(
                 str(args.weights), args.confidence, args.device, image_size=args.imgsz,
+                tile_width=args.tile_width, half=args.half,
             ),
             tracker=tracker,
+            pitch_mask_polygon=_mask_polygon,
         )
     except Exception as exc:
         print(f"error: configuration failed: {exc}", file=sys.stderr)
@@ -159,10 +178,28 @@ def main(argv: list[str] | None = None) -> int:
     usable_player_positions = 0
     ball_observations = 0
     started_at = datetime.now(timezone.utc).isoformat()
+    import time as _time
+    t_start = _time.perf_counter()
     try:
+        import cv2 as _cv2
+        _probe = _cv2.VideoCapture(str(args.video))
+        expected = int(_probe.get(_cv2.CAP_PROP_FRAME_COUNT)) - args.start_frame
+        _probe_fps = float(_probe.get(_cv2.CAP_PROP_FPS)) or 25.0
+        _w, _h = int(_probe.get(_cv2.CAP_PROP_FRAME_WIDTH)), int(_probe.get(_cv2.CAP_PROP_FRAME_HEIGHT))
+        _probe.release()
+        if args.max_frames is not None:
+            expected = min(expected, args.max_frames)
+        if args.max_seconds is not None:
+            expected = min(expected, int(args.max_seconds * _probe_fps))
+        (run_dir / "manifest.json").write_text(json.dumps({
+            "status": "processing",
+            "configuration": {"video_fps": _probe_fps, "video_width_px": _w or 4096, "video_height_px": _h or 1080},
+            "summary": {"total_frames_expected": expected},
+        }, indent=2) + "\n", encoding="utf-8")
         with frames_path.open("x", encoding="utf-8", newline="\n") as stream:
             for frame in pipeline.process_video_generator(
                 str(args.video), max_frames=args.max_frames, max_seconds=args.max_seconds,
+                start_frame=args.start_frame,
             ):
                 stream.write(json.dumps(frame.to_dict(), allow_nan=False, separators=(",", ":")) + "\n")
                 if (count + 1) % 25 == 0:
@@ -199,10 +236,16 @@ def main(argv: list[str] | None = None) -> int:
             "configuration": {
                 "confidence_threshold": args.confidence,
                 "image_size": args.imgsz,
+                "tile_width": args.tile_width,
+                "tracker_params": {"activation": args.track_activation, "buffer_frames": args.track_buffer, "matching_threshold": args.track_match},
+                "kit_classifier": "adaptive saturation split (blue/white), other=GK/referee kits, unknown otherwise; colour labels, not home/away",
+                "pitch_mask": {"keypoints": str(args.pitch_keypoints), "margin_px": args.mask_margin} if args.pitch_keypoints else None,
+                "half": args.half,
                 "mode": "detection_only" if args.detection_only else "pitch_tracking",
                 "device": args.device,
                 "requested_tracker": args.tracker,
                 "selected_tracker": tracker.backend,
+                "start_frame": args.start_frame,
                 "max_frames": args.max_frames,
                 "max_seconds": args.max_seconds,
                 "calibration": calibrator.to_dict() if calibrator else None,
@@ -219,6 +262,10 @@ def main(argv: list[str] | None = None) -> int:
             },
             "summary": {
                 "frames_written": count,
+                "total_frames_expected": expected,
+                "wall_time_s": round(_time.perf_counter() - t_start, 1),
+                "stage_seconds": {k: round(v, 2) for k, v in pipeline.timings.items()} | {"write_and_analytics": round(_time.perf_counter() - t_start - sum(pipeline.timings.values()), 2)},
+                "processing_fps": round(count / max(1e-9, _time.perf_counter() - t_start), 2),
                 "player_observations": player_observations,
                 "other_non_ball_observations": other_non_ball_observations,
                 "usable_estimated_player_positions": usable_player_positions,

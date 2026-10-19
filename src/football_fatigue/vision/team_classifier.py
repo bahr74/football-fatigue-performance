@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import Counter, deque
 from typing import Any, Sequence
 from football_fatigue.vision.models import BoundingBox, TeamSide
 
@@ -170,3 +171,138 @@ class TeamColorClassifier:
         if home_count == away_count:
             return TeamSide.UNKNOWN
         return TeamSide.HOME if home_count > away_count else TeamSide.AWAY
+
+
+class KitColorClassifier:
+    """Track-level kit-colour label: ``blue``, ``white``, ``other`` or ``unknown``.
+
+    This is a colour label, not a home/away identity.
+
+    * ``other``: goalkeeper/referee-style kits (yellow, red, dark torso pixels
+      dominate). Never assigned to either team.
+    * ``blue`` / ``white``: torso saturation (grass removed) split by an
+      *adaptive* 1-D 2-means threshold over recent boxes of all players, so
+      lighting drift across the match (white shirts looked bluish in shade)
+      does not break a fixed threshold. The more saturated cluster is called
+      ``blue``; this assumes a blue-vs-white fixture. If the two clusters are
+      not clearly separated, or a box lies in the ambiguous band, no vote is cast.
+    * ``unknown``: not enough votes, or no clear majority over the track's
+      recent frames.
+    """
+
+    def __init__(
+        self,
+        min_observations: int = 8,
+        other_min: float = 0.30,
+        window: int = 40,
+        min_share: float = 0.6,
+        buffer_size: int = 800,
+        min_buffer: int = 100,
+        min_separation: float = 50.0,
+        band: float = 0.12,
+        refit_every: int = 20,
+    ) -> None:
+        self.min_observations = min_observations
+        self.other_min = other_min
+        self.window = window
+        self.min_share = min_share
+        self.min_buffer = min_buffer
+        self.min_separation = min_separation
+        self.band = band
+        self.refit_every = refit_every
+        self._sat_buffer: deque[float] = deque(maxlen=buffer_size)
+        self._since_fit = 0
+        self._threshold: float | None = None
+        self._half_band = 0.0
+        self.separation = 0.0
+        self._state: dict[int, deque] = {}
+        self.last_vote: str | None = None  # raw per-frame vote of the most recent observe()
+
+    def torso_features(self, frame_rgb: Any, bbox: BoundingBox) -> tuple[float, float, float, float] | None:
+        """(median saturation, yellow, red, dark fractions) of non-grass torso pixels, or None."""
+        try:
+            import cv2
+            import numpy as np
+
+            h, w = frame_rgb.shape[:2]
+            bw, bh = bbox.x2 - bbox.x1, bbox.y2 - bbox.y1
+            y1, y2 = max(0, int(bbox.y1 + 0.18 * bh)), min(h, int(bbox.y1 + 0.55 * bh))
+            x1, x2 = max(0, int(bbox.x1 + 0.25 * bw)), min(w, int(bbox.x2 - 0.25 * bw))
+            if y2 - y1 < 3 or x2 - x1 < 2:
+                return None
+            hsv = cv2.cvtColor(frame_rgb[y1:y2, x1:x2], cv2.COLOR_RGB2HSV).reshape(-1, 3).astype(int)
+            hue, sat, val = hsv[:, 0], hsv[:, 1], hsv[:, 2]
+            keep = ~((hue >= 35) & (hue <= 85) & (sat >= 40))  # drop grass
+            if keep.sum() < 8:
+                return None
+            hue, sat, val = hue[keep], sat[keep], val[keep]
+            yellow = ((hue >= 18) & (hue <= 35) & (sat >= 100) & (val >= 120)).mean()
+            red = (((hue <= 8) | (hue >= 170)) & (sat >= 100) & (val >= 80)).mean()
+            dark = (val <= 60).mean()
+            return float(np.median(sat)), float(yellow), float(red), float(dark)
+        except Exception:
+            return None
+
+    def _refit(self) -> None:
+        import numpy as np
+
+        x = np.fromiter(self._sat_buffer, dtype=float)
+        if len(x) < self.min_buffer:
+            self._threshold = None
+            return
+        lo, hi = np.percentile(x, 25), np.percentile(x, 75)
+        for _ in range(20):  # 1-D 2-means
+            thr = (lo + hi) / 2
+            a, b = x[x <= thr], x[x > thr]
+            if len(a) == 0 or len(b) == 0:
+                break
+            lo, hi = a.mean(), b.mean()
+        self.separation = float(hi - lo)
+        if self.separation < self.min_separation:
+            self._threshold = None  # no clear two-colour split in view
+            return
+        self._threshold = float((lo + hi) / 2)
+        self._half_band = self.band * self.separation
+
+    def _frame_label(self, feats: tuple[float, float, float, float]) -> str | None:
+        sat, yellow, red, dark = feats
+        if max(yellow, red, dark) >= self.other_min:
+            return "other"
+        if self._threshold is None:
+            return None
+        if sat >= self._threshold + self._half_band:
+            return "blue"
+        if sat <= self._threshold - self._half_band:
+            return "white"
+        return None
+
+    def observe(self, track_id: int, frame_rgb: Any, bbox: BoundingBox) -> tuple[str, float]:
+        """Add one observation for a track and return (label, confidence 0-1)."""
+        feats = self.torso_features(frame_rgb, bbox) if frame_rgb is not None else None
+        votes = self._state.setdefault(track_id, deque(maxlen=self.window))
+        if feats is not None:
+            if max(feats[1:]) < self.other_min:
+                self._sat_buffer.append(feats[0])
+                self._since_fit += 1
+                if self._since_fit >= self.refit_every or self._threshold is None and len(self._sat_buffer) == self.min_buffer:
+                    self._since_fit = 0
+                    self._refit()
+            self.last_vote = self._frame_label(feats)
+            votes.append(self.last_vote)
+        else:
+            self.last_vote = None
+        return self.label(track_id)
+
+    def label(self, track_id: int) -> tuple[str, float]:
+        """Plurality vote over the track's recent frames; ``unknown`` without a clear majority."""
+        votes = self._state.get(track_id)
+        if not votes:
+            return "unknown", 0.0
+        decided = [v for v in votes if v is not None]
+        if len(decided) < self.min_observations:
+            return "unknown", 0.0
+        best, n = Counter(decided).most_common(1)[0]
+        share = n / len(votes)  # undecided frames count against the label
+        if share < self.min_share:
+            return "unknown", 0.0
+        return best, round(share, 3)

@@ -313,3 +313,36 @@ class HomographyCalibrator:
             return h.tolist()
         except ImportError as exc:
             raise RuntimeError("NumPy is required to calculate a homography without OpenCV.") from exc
+
+
+def pitch_polygon_from_keypoints(
+    keypoints_path: str,
+    margin_px: int = 60,
+    frame_size: tuple[int, int] = (4096, 1080),
+) -> list[tuple[float, float]]:
+    """Image-space pitch outline (convex hull of labelled pitch keypoints, dilated).
+
+    Used only as an image-space false-positive mask; it is not a metric
+    calibration. ``margin_px`` keeps players standing on or just outside the
+    touchlines.
+    """
+    import json
+
+    import cv2
+    import numpy as np
+
+    with open(keypoints_path, encoding="utf-8") as stream:
+        raw = json.load(stream)
+    pts = np.array([v for v in raw.values()], dtype=np.float32)
+    if len(pts) < 4:
+        raise ValueError("At least four keypoints are required for a pitch outline.")
+    width, height = frame_size
+    mask = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillConvexPoly(mask, cv2.convexHull(pts).astype(np.int32), 255)
+    if margin_px > 0:
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * margin_px + 1, 2 * margin_px + 1))
+        mask = cv2.dilate(mask, kernel)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contour = max(contours, key=cv2.contourArea)
+    contour = cv2.approxPolyDP(contour, 2.0, True)
+    return [(float(x), float(y)) for x, y in contour.reshape(-1, 2)]

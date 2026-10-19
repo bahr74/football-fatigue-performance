@@ -85,6 +85,9 @@ class TrackedPlayer:
     speed_m_s: float | None = None
     is_estimated: bool = False
     is_usable: bool = False
+    kit_color: str | None = None        # 'blue' | 'white' | 'other' | 'unknown'; a colour label, not home/away
+    kit_confidence: float | None = None
+    kit_vote: str | None = None          # raw single-frame colour vote (None = undecided)
 
 
 @dataclass
@@ -135,6 +138,9 @@ class VisionFrame:
                     "position_usable": (
                         p.is_usable and p.pitch_x is not None and p.pitch_y is not None
                     ),
+                    "kit_color": p.kit_color,
+                    "kit_confidence": round(p.kit_confidence, 3) if p.kit_confidence is not None else None,
+                    "kit_vote": p.kit_vote,
                     "identity_usable": p.jersey_number is not None,
                     "coord_source": "cv_tracking",
                 }

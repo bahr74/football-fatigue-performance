@@ -32,7 +32,7 @@ import re
 import threading
 import time
 import webbrowser
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -287,10 +287,13 @@ class BoardHandler(BaseHTTPRequestHandler):
     home_html_path: Path = Path(__file__).parent.parent / "board" / "home.html"
     cv_html_path: Path = Path(__file__).parent.parent / "board" / "cv.html"
     vision_demo_dir: Path = Path("data/processed/vision/soccertrack-117093-detection-only-30f-20261018")
-    vision_video_path: Path = Path("data/external/soccertrack-v2/mot/clips/117093.mp4")
+    vision_video_path: Path = Path("data/external/soccertrack-v2/raw/117093/117093.mp4")
     vision_mot_path: Path = Path("data/external/soccertrack-v2/mot/117093.txt")
+    vision_export_dir: Path = Path("data/processed/vision_exports/full")
     _mot_frames: dict[int, list[dict[str, float | int]]] | None = None
     _mot_summary: dict[str, Any] | None = None
+    _cv_analytics_cache: Any = None
+    _cv_coach_cache: Any = None
 
     def do_OPTIONS(self) -> None:
         self.send_response(200)
@@ -310,10 +313,25 @@ class BoardHandler(BaseHTTPRequestHandler):
             self._serve_file(self.board_html_path, "text/html; charset=utf-8")
 
         elif path in ("/cv", "/cv/"):
-            self._serve_file(self.cv_html_path, "text/html; charset=utf-8")
+            self._serve_file(self.cv_html_path, "text/html; charset=utf-8", no_store=True)
 
         elif path == "/api/cv/demo":
             self._cv_demo()
+
+        elif path == "/api/cv/frames":
+            self._cv_frames(parsed)
+
+        elif path == "/api/cv/tracks.csv":
+            self._cv_tracks_csv()
+
+        elif path == "/api/cv/analytics":
+            self._cv_analytics()
+
+        elif path == "/api/cv/coach":
+            self._cv_coach()
+
+        elif path in self._CV_DOWNLOADS:
+            self._cv_download(path, "download" in parse_qs(parsed.query))
 
         elif path == "/api/cv/mot":
             self._cv_mot(parsed)
@@ -502,7 +520,7 @@ class BoardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _serve_file(self, path: Path, content_type: str) -> None:
+    def _serve_file(self, path: Path, content_type: str, no_store: bool = False) -> None:
         if not path.exists():
             self.send_error(404, f"File not found: {path}")
             return
@@ -510,22 +528,29 @@ class BoardHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if no_store:
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
 
-    def _cv_demo(self) -> None:
-        """Return the explicitly selected local CV demonstration artifacts.
-
-        The endpoint intentionally names one known sample and one known derived
-        run. It never exposes arbitrary files from data/external or data/raw.
-        """
+    def _cv_run_dir(self) -> Path:
         demo_dir = self.vision_demo_dir
         candidates = sorted(demo_dir.parent.glob("soccertrack-117093-*/frames.jsonl"))
         if candidates:
-            # Prefer the newest run, including an actively processing run, so
-            # the dashboard can show detections as they are written.
+            # Prefer the newest run, including an actively processing run.
             demo_dir = max(candidates, key=lambda path: path.stat().st_mtime).parent
+        return demo_dir
+
+    def _cv_demo(self) -> None:
+        """Return a bounded summary of the selected local CV run.
+
+        Frames are not returned here; use ``/api/cv/frames`` windows. The
+        endpoint names one known sample and never exposes arbitrary files.
+        """
+        from football_fatigue.vision import run_index
+
+        demo_dir = self._cv_run_dir()
         manifest_path = demo_dir / "manifest.json"
         frames_path = demo_dir / "frames.jsonl"
         analytics_path = demo_dir / "analytics.json"
@@ -536,28 +561,189 @@ class BoardHandler(BaseHTTPRequestHandler):
             })
             return
         try:
-            frames = [json.loads(line) for line in frames_path.read_text(encoding="utf-8").splitlines() if line]
             manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {
                 "status": "processing",
                 "configuration": {"video_fps": 25.0, "video_width_px": 4096, "video_height_px": 1080},
-                "summary": {"frames_written": len(frames)},
+                "summary": {},
             }
             analytics = json.loads(analytics_path.read_text(encoding="utf-8")) if analytics_path.is_file() else None
-        except (OSError, json.JSONDecodeError) as exc:
+            cfg = manifest.get("configuration") or {}
+            index = run_index.get_index(
+                frames_path, int(cfg.get("video_width_px") or 4096), int(cfg.get("video_height_px") or 1080)
+            )
+            summary = run_index.summary(index)
+            first = run_index.frame_window(frames_path, index, 0, 10**9, limit=25)
+        except (OSError, ValueError, KeyError) as exc:
             self._json({"available": False, "message": f"Could not read CV demo artifacts: {exc}"})
             return
         self._json({
             "available": True,
             "sample_id": "soccertrack-117093",
             "video_url": "/media/soccertrack/117093.mp4",
-            "frames": frames,
+            "frames": first,  # compatibility: first 25 frames only; use frames_endpoint
+            "video_start_time_s": run_index.video_start_time_s(self.vision_video_path),
+            "frames_endpoint": "/api/cv/frames",
+            "csv_url": "/api/cv/tracks.csv",
             "manifest": manifest,
             "analytics": analytics,
+            "image_space": summary,
             "notice": (
                 "Detector output covers the saved run. Boxes and track IDs are image-space estimates; "
                 "pitch analytics are shown only when calibrated coordinates pass the input checks."
             ),
         })
+
+    # Fixed whitelist of saved exports; no client-supplied path ever reaches the filesystem.
+    _CV_DOWNLOADS = {
+        "/media/soccertrack/annotated.mp4": ("annotated_full_117093.mp4", "Annotated full video"),
+        "/media/soccertrack/preview.mp4": ("preview_30s_2048.mp4", "30 s preview (frames 3000-3749)"),
+    }
+
+    def _cv_export_files(self) -> list[dict[str, Any]]:
+        out = []
+        for url, (name, label) in self._CV_DOWNLOADS.items():
+            f = self.vision_export_dir / name
+            out.append({
+                "url": url, "label": label, "filename": name, "available": f.is_file(),
+                "size_bytes": f.stat().st_size if f.is_file() else None,
+            })
+        return out
+
+    def _cv_download(self, path: str, as_attachment: bool) -> None:
+        name = self._CV_DOWNLOADS[path][0]
+        target = self.vision_export_dir / name
+        self._serve_video(target, attachment=name if as_attachment else None)
+
+    def _cv_coach(self) -> None:
+        """Coach-facing team-shape insights for the selected run.
+
+        Uses the saved ``coach_insights.json`` (written by ``python -m football_fatigue.vision.team_shape``,
+        includes reference validation). Without it the shape analytics are computed from ``frames.jsonl``
+        and marked unvalidated.
+        """
+        from football_fatigue.vision import run_index, team_shape
+
+        run_dir = self._cv_run_dir()
+        frames_path = run_dir / "frames.jsonl"
+        if not frames_path.is_file():
+            self._json({"available": False, "message": "No saved CV run."})
+            return
+        saved = run_dir / "coach_insights.json"
+        try:
+            if saved.is_file():
+                insights = json.loads(saved.read_text(encoding="utf-8"))
+                insights["validated"] = "validation" in insights
+            else:
+                key = (str(frames_path), frames_path.stat().st_size)
+                cached = BoardHandler._cv_coach_cache
+                if cached is None or cached[0] != key:
+                    BoardHandler._cv_coach_cache = cached = (key, team_shape.compute(frames_path))
+                insights = dict(cached[1], validated=False)
+        except (OSError, ValueError) as exc:
+            self._json({"available": False, "message": f"Could not build coach insights: {exc}"})
+            return
+        self._json({
+            "available": True, "run": run_dir.name, **insights,
+            "video_start_time_s": run_index.video_start_time_s(self.vision_video_path),
+            "downloads": self._cv_export_files(),
+        })
+
+    def _cv_analytics(self) -> None:
+        """Cached team-level image-space analytics for the selected saved run (no detector run)."""
+        from football_fatigue.vision import run_index
+
+        try:
+            frames_path, index = self._cv_index()
+        except (ValueError, OSError) as exc:
+            self._json({"available": False, "message": str(exc)})
+            return
+        if index is None:
+            self._json({"available": False, "message": "No saved CV run."})
+            return
+        run_dir = frames_path.parent
+
+        def load(name: str):
+            f = run_dir / name
+            try:
+                return json.loads(f.read_text(encoding="utf-8")) if f.is_file() else None
+            except (OSError, ValueError):
+                return None
+
+        manifest = load("manifest.json") or {}
+        reference_eval = load("tracking_eval.json")
+        key = (str(frames_path), index.consumed, bool(reference_eval))
+        cached = BoardHandler._cv_analytics_cache
+        if cached is None or cached[0] != key:
+            result = run_index.team_analytics(index, manifest, reference_eval)
+            result["comparison"] = load("comparison.json")
+            BoardHandler._cv_analytics_cache = cached = (key, result)
+        self._json({
+            "available": True,
+            "run": run_dir.name,
+            **cached[1],
+            "downloads": self._cv_export_files(),
+            "advanced_metrics": {
+                "status": "unavailable",
+                "reasons": ["Camera calibration is not validated, so metric distance, speed, Pitch Control, "
+                            "EPV, OBSO, DAS and fatigue are not computed."],
+            },
+        })
+
+    def _cv_index(self):
+        from football_fatigue.vision import run_index
+
+        demo_dir = self._cv_run_dir()
+        frames_path = demo_dir / "frames.jsonl"
+        if not frames_path.is_file():
+            return None, None
+        manifest_path = demo_dir / "manifest.json"
+        cfg = {}
+        if manifest_path.is_file():
+            cfg = (json.loads(manifest_path.read_text(encoding="utf-8")).get("configuration") or {})
+        return frames_path, run_index.get_index(
+            frames_path, int(cfg.get("video_width_px") or 4096), int(cfg.get("video_height_px") or 1080)
+        )
+
+    def _cv_frames(self, parsed: Any) -> None:
+        """Bounded frame window: ``?start=<frame>&end=<frame>&limit=<n>``."""
+        from football_fatigue.vision import run_index
+
+        qs = parse_qs(parsed.query)
+        try:
+            start = int(qs.get("start", ["0"])[0])
+            end = int(qs.get("end", [str(start + 100)])[0])
+            limit = int(qs.get("limit", [str(run_index.MAX_WINDOW_FRAMES)])[0])
+            frames_path, index = self._cv_index()
+        except (ValueError, OSError) as exc:
+            self._json({"available": False, "message": str(exc)})
+            return
+        if index is None:
+            self._json({"available": False, "message": "No saved CV run."})
+            return
+        self._json({
+            "available": True,
+            "start": start,
+            "frames": run_index.frame_window(frames_path, index, start, end, limit),
+            "frames_indexed": len(index.offsets),
+        })
+
+    def _cv_tracks_csv(self) -> None:
+        from football_fatigue.vision import run_index
+
+        try:
+            frames_path, index = self._cv_index()
+        except (ValueError, OSError):
+            frames_path = index = None
+        if index is None:
+            self.send_error(404, "No saved CV run")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", 'attachment; filename="cv_tracks_pixel_space.csv"')
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        for chunk in run_index.tracks_csv(frames_path, index):
+            self.wfile.write(chunk.encode("utf-8"))
 
     @classmethod
     def _load_mot_annotations(cls) -> tuple[dict[int, list[dict[str, float | int]]], dict[str, Any]]:
@@ -627,7 +813,7 @@ class BoardHandler(BaseHTTPRequestHandler):
             "notice": "Reference annotation overlay. These boxes and IDs are not detector output.",
         })
 
-    def _serve_video(self, path: Path) -> None:
+    def _serve_video(self, path: Path, attachment: str | None = None) -> None:
         """Stream the local demonstration video with single-range support."""
         if not path.is_file():
             self.send_error(404, "Video file not found")
@@ -655,6 +841,8 @@ class BoardHandler(BaseHTTPRequestHandler):
         length = end - start + 1
         self.send_header("Content-Type", "video/mp4")
         self.send_header("Content-Length", str(length))
+        if attachment:
+            self.send_header("Content-Disposition", f'attachment; filename="{attachment}"')
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
@@ -665,7 +853,10 @@ class BoardHandler(BaseHTTPRequestHandler):
                 chunk = stream.read(min(1024 * 1024, remaining))
                 if not chunk:
                     break
-                self.wfile.write(chunk)
+                try:
+                    self.wfile.write(chunk)
+                except (ConnectionError, OSError):
+                    return  # the browser closed this range request (seek/stall); not an error
                 remaining -= len(chunk)
 
     def log_message(self, fmt: str, *args: Any) -> None:
@@ -689,7 +880,8 @@ def run(
     BoardHandler.root = root
     workspace = Path.cwd()
     BoardHandler.vision_demo_dir = workspace / "data" / "processed" / "vision" / "soccertrack-117093-detection-only-30f-20261018"
-    BoardHandler.vision_video_path = workspace / "data" / "external" / "soccertrack-v2" / "mot" / "clips" / "117093.mp4"
+    BoardHandler.vision_video_path = workspace / "data" / "external" / "soccertrack-v2" / "raw" / "117093" / "117093.mp4"
+    BoardHandler.vision_export_dir = workspace / "data" / "processed" / "vision_exports" / "full"
     BoardHandler.vision_mot_path = workspace / "data" / "external" / "soccertrack-v2" / "mot" / "117093.txt"
     BoardHandler._mot_frames = None
     BoardHandler._mot_summary = None
@@ -710,7 +902,9 @@ def run(
     else:
         BoardHandler.payload = {}
 
-    server = HTTPServer(("127.0.0.1", port), BoardHandler)
+    # Threaded: a long-lived video range request must not block JSON API calls.
+    server = ThreadingHTTPServer(("127.0.0.1", port), BoardHandler)
+    server.daemon_threads = True
     url = f"http://127.0.0.1:{port}/"
     print(f"\n[server] Football analytics workspace ready at {url}")
     print("[server] Press Ctrl+C to stop.\n")

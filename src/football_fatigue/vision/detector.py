@@ -15,6 +15,10 @@ class YOLOPlayerDetector:
         confidence_threshold: float = 0.40,
         device: str = "cpu",
         image_size: int = 640,
+        tile_width: int | None = None,
+        tile_overlap: float = 0.2,
+        half: bool = False,
+        merge_iou: float = 0.5,
     ) -> None:
         self.model_path = model_path
         self.confidence_threshold = confidence_threshold
@@ -22,6 +26,16 @@ class YOLOPlayerDetector:
         if not isinstance(image_size, int) or image_size < 32:
             raise ValueError("image_size must be an integer of at least 32 pixels.")
         self.image_size = image_size
+        if tile_width is not None and tile_width < 64:
+            raise ValueError("tile_width must be at least 64 pixels.")
+        if not 0 <= tile_overlap < 1:
+            raise ValueError("tile_overlap must be in [0, 1).")
+        # Tiled inference: full-height vertical strips of tile_width pixels so
+        # small players keep their native scale instead of being downsized.
+        self.tile_width = tile_width
+        self.tile_overlap = tile_overlap
+        self.half = half
+        self.merge_iou = merge_iou
         self._model: Any = None
 
     def load_model(self) -> None:
@@ -42,26 +56,9 @@ class YOLOPlayerDetector:
         """Run object detection on an RGB frame (numpy array or image path)."""
         self.load_model()
 
-        results = self._model(
-            frame_rgb,
-            conf=self.confidence_threshold,
-            device=self.device,
-            imgsz=self.image_size,
-            verbose=False,
-        )
-
         detections: list[Detection] = []
-        if not results:
-            return detections
-
-        r = results[0]
-        boxes = r.boxes
-
-        for i in range(len(boxes)):
-            cls_id = int(boxes.cls[i].item())
-            conf = float(boxes.conf[i].item())
-            xyxy = boxes.xyxy[i].tolist()
-            names = getattr(r, "names", None) or getattr(self._model, "names", {})
+        names = getattr(self._model, "names", {})
+        for cls_id, conf, xyxy in self._infer(frame_rgb):
             cls_name = self._map_class(cls_id, names)
             if cls_name is None:
                 continue
@@ -84,6 +81,56 @@ class YOLOPlayerDetector:
             ))
 
         return detections
+
+    def _tile_origins(self, width: int) -> list[int]:
+        tile = min(self.tile_width, width)
+        step = max(1, int(tile * (1 - self.tile_overlap)))
+        xs = list(range(0, max(1, width - tile + 1), step))
+        if xs[-1] + tile < width:
+            xs.append(width - tile)
+        return xs
+
+    def _infer(self, frame_rgb: Any) -> list[tuple[int, float, list[float]]]:
+        """Raw (class_id, confidence, xyxy) in full-frame pixel coordinates."""
+        # Ultralytics treats numpy arrays as BGR; the pipeline supplies RGB.
+        import numpy as np
+
+        bgr = np.ascontiguousarray(frame_rgb[:, :, ::-1])
+        kwargs = dict(
+            conf=self.confidence_threshold, device=self.device, imgsz=self.image_size,
+            half=self.half, verbose=False,
+        )
+        if self.tile_width is None:
+            results = self._model(bgr, **kwargs)
+            offsets = [0]
+        else:
+            width = bgr.shape[1]
+            offsets = self._tile_origins(width)
+            tile = min(self.tile_width, width)
+            results = self._model([np.ascontiguousarray(bgr[:, x:x + tile]) for x in offsets], **kwargs)
+        out: list[tuple[int, float, list[float]]] = []
+        for r, x_off in zip(results, offsets):
+            b = r.boxes
+            if b is None or len(b) == 0:
+                continue
+            for cls, conf, xyxy in zip(b.cls.tolist(), b.conf.tolist(), b.xyxy.tolist()):
+                out.append((int(cls), float(conf), [xyxy[0] + x_off, xyxy[1], xyxy[2] + x_off, xyxy[3]]))
+        if self.tile_width is not None and len(offsets) > 1:
+            out = self._merge_tiles(out)
+        return out
+
+    def _merge_tiles(self, items: list[tuple[int, float, list[float]]]) -> list[tuple[int, float, list[float]]]:
+        """Class-aware NMS to remove duplicates from overlapping tiles."""
+        import torch
+        from torchvision.ops import batched_nms
+
+        if not items:
+            return items
+        boxes = torch.tensor([i[2] for i in items], dtype=torch.float32)
+        scores = torch.tensor([i[1] for i in items], dtype=torch.float32)
+        classes = torch.tensor([i[0] for i in items])
+        keep = batched_nms(boxes, scores, classes, self.merge_iou).tolist()
+        return [items[k] for k in keep]
 
     @staticmethod
     def _looks_like_player(frame_rgb: Any, bbox: BoundingBox) -> bool:

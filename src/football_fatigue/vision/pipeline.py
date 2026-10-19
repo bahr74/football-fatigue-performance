@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from typing import TYPE_CHECKING, Any, Callable, Generator, Sequence
 from football_fatigue.vision.calibration import HomographyCalibrator
 from football_fatigue.vision.detector import YOLOPlayerDetector
@@ -15,7 +16,7 @@ from football_fatigue.vision.models import (
     TrackedPlayer,
     VisionFrame,
 )
-from football_fatigue.vision.team_classifier import TeamColorClassifier
+from football_fatigue.vision.team_classifier import KitColorClassifier, TeamColorClassifier
 from football_fatigue.vision.tracker import ActiveTrack, MultiObjectTracker
 
 if TYPE_CHECKING:
@@ -67,8 +68,14 @@ class VisionTrackingPipeline:
         tracker: MultiObjectTracker | None = None,
         team_classifier: TeamColorClassifier | None = None,
         fps: float = 25.0,
+        pitch_mask_polygon: Sequence[tuple[float, float]] | None = None,
+        kit_classifier: KitColorClassifier | None = None,
     ) -> None:
+        self.kit_classifier = kit_classifier or KitColorClassifier()
         self.calibrator = calibrator
+        self.pitch_mask_polygon = pitch_mask_polygon
+        # Cumulative wall-clock seconds per stage, for profiling.
+        self.timings: dict[str, float] = {"decode": 0.0, "convert": 0.0, "detect": 0.0, "track": 0.0}
         self.detector = detector or YOLOPlayerDetector()
         self.tracker = tracker or MultiObjectTracker()
         self.team_classifier = team_classifier or TeamColorClassifier()
@@ -112,10 +119,14 @@ class VisionTrackingPipeline:
         if detections is None:
             if frame_rgb is None:
                 raise ValueError("Either frame_rgb or detections must be provided.")
-            detections = self.detector.detect(frame_rgb)
+            _t = time.perf_counter()
+            detections = self.detector.detect(frame_rgb, pitch_mask_polygon=self.pitch_mask_polygon)
+            self.timings["detect"] += time.perf_counter() - _t
 
         # 2. Update multi-object tracks
+        _t = time.perf_counter()
         tracks = self.tracker.update(detections, frame_num)
+        self.timings["track"] += time.perf_counter() - _t
 
         # 3. Separate ball and players
         tracked_players: list[TrackedPlayer] = []
@@ -187,6 +198,10 @@ class VisionTrackingPipeline:
                 if accept_for_speed:
                     self._prev_player_positions[trk.track_id] = (px, py, timestamp_s)
 
+                kit_color, kit_conf = (
+                    self.kit_classifier.observe(trk.track_id, frame_rgb, trk.bbox)
+                    if frame_rgb is not None else ("unknown", 0.0)
+                )
                 tracked_players.append(TrackedPlayer(
                     track_id=trk.track_id,
                     team_side=team_side,
@@ -201,6 +216,9 @@ class VisionTrackingPipeline:
                     speed_m_s=speed_m_s,
                     is_estimated=True,
                     is_usable=is_on_pitch,
+                    kit_color=kit_color,
+                    kit_confidence=kit_conf,
+                    kit_vote=self.kit_classifier.last_vote if frame_rgb is not None else None,
                 ))
 
         vision_frame = VisionFrame(
@@ -219,6 +237,7 @@ class VisionTrackingPipeline:
         video_path: str,
         max_frames: int | None = None,
         max_seconds: float | None = None,
+        start_frame: int = 0,
         callback: Callable[[int, int], None] | None = None,
     ) -> Generator[VisionFrame, None, None]:
         """Stream and process frames from a video file using OpenCV."""
@@ -240,18 +259,26 @@ class VisionTrackingPipeline:
         self._video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.set_video_fps(video_fps if math.isfinite(video_fps) and video_fps > 0 else self.fps)
 
-        frame_idx = 0
+        if start_frame < 0:
+            raise ValueError("start_frame must be non-negative.")
+        if start_frame:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        frame_idx = start_frame  # absolute source frame index; timestamps stay absolute
         try:
             while True:
-                if max_frames is not None and frame_idx >= max_frames:
+                if max_frames is not None and frame_idx - start_frame >= max_frames:
                     break
+                _t = time.perf_counter()
                 ret, frame_bgr = cap.read()
+                self.timings["decode"] += time.perf_counter() - _t
                 if not ret:
                     break
-                if max_seconds is not None and frame_idx / self.fps >= max_seconds:
+                if max_seconds is not None and (frame_idx - start_frame) / self.fps >= max_seconds:
                     break
 
+                _t = time.perf_counter()
                 frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                self.timings["convert"] += time.perf_counter() - _t
                 vf = self.process_frame(frame_rgb, frame_num=frame_idx, timestamp_s=frame_idx / self.fps)
                 yield vf
 
