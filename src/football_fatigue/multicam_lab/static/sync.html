@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sync Review</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>.blend{position:relative}.blend canvas{width:100%;display:block;border-radius:6px;background:#020711}</style>
+</head>
+<body>
+<header>
+  <h1>Synchronisation review</h1><span class="tag">MANUAL CHECK</span>
+  <nav class="tabs"><a href="/">← Lab</a><a href="/review">Benchmark review</a></nav>
+</header>
+<main>
+  <div class="bar">
+    <label title="Moving-camera time (master)">Master time (s) <input type="number" id="tM" value="1829.0" step="0.0333" style="width:110px"></label>
+    <button class="b" id="mPrev">−1 frame</button><button class="b" id="mNext">+1 frame</button>
+    <label title="Fixed source time = master time + offset">Offset τ (s) <input type="range" id="tau" min="-1.0" max="1.0" step="0.0333333" value="-0.1" style="width:260px"></label>
+    <b id="tauVal">-0.100 s</b>
+    <button class="b" id="tauEst" title="Reset to the global player-motion estimate">use estimate</button>
+  </div>
+  <div class="sync" id="info"></div>
+  <div class="grid">
+    <div class="card"><h3>Fixed camera <span class="src" id="srcF"></span></h3><canvas class="view" id="cvF" width="640" height="360"></canvas></div>
+    <div class="card"><h3>Moving camera (master) <span class="src" id="srcM"></span></h3><canvas class="view" id="cvM" width="640" height="360"></canvas></div>
+  </div>
+  <p class="small muted">Step through a moment with a clear event (a kick, a sudden turn, the ball leaving a foot) and move the offset slider until both views show the same physical instant.
+    The fixed recording repeats one frame in six (25 fps capture), so single frames can differ by about 20–33 ms. Decisions are appended to <code>data/processed/multicam_lab/reviews/sync_reviews_v1.jsonl</code> and never overwrite the automatic estimate.</p>
+  <div class="bar">
+    <label>Reviewer <input type="text" id="reviewer" placeholder="your name (required)" style="width:170px"></label>
+    <label>Verdict <select id="verdict"><option value="aligned">aligned at this offset</option><option value="not_aligned">not aligned (offset wrong)</option><option value="cannot_tell">cannot tell (no clear event)</option></select></label>
+    <input type="text" id="event" placeholder="event used (e.g. kick at the circle)" style="width:260px">
+    <button class="b primary" id="save">Save decision</button><span id="msg" class="small"></span>
+  </div>
+  <div class="card"><h3>Saved sync decisions</h3><div id="hist" class="small"></div></div>
+</main>
+<script>
+"use strict";
+const $ = s => document.querySelector(s), esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let EST = -0.1, GLOBAL = null; const FPS = 30;
+try { $("#reviewer").value = localStorage.getItem("m108_reviewer") || ""; } catch (e) { }
+const q = new URLSearchParams(location.search); if (q.get("t")) $("#tM").value = q.get("t");
+function load(key, idx) { return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = `/api/frame?video=${key}&idx=${idx}`; }); }
+let seq = 0;
+async function show() {
+  const my = ++seq, T = +$("#tM").value, tau = +$("#tau").value; $("#tauVal").textContent = `${tau.toFixed(3)} s`;
+  const im = Math.round(T * FPS), want = T + tau, iF = Math.round(want * FPS);
+  const [a, b] = await Promise.all([load("wadi_degla_fixed_same_match", iF), load("wadi_degla_moving", im)]); if (my !== seq) return;
+  for (const [cv, img, src, i] of [[$("#cvF"), a, $("#srcF"), iF], [$("#cvM"), b, $("#srcM"), im]]) {
+    const ctx = cv.getContext("2d"); ctx.fillStyle = "#020711"; ctx.fillRect(0, 0, 640, 360);
+    if (img) ctx.drawImage(img, 0, 0, 640, 360); else { ctx.fillStyle = "#f87171"; ctx.fillText("frame unavailable", 20, 30); }
+    src.textContent = `frame ${i} · ${(i / FPS).toFixed(3)} s`;
+  }
+  const ins = iF / FPS >= 2711.93 && iF / FPS <= 2748.84;
+  $("#info").innerHTML = `<span>requested fixed time <b>${want.toFixed(3)} s</b>, shown frame ${iF} (residual ${((iF / FPS - want) * 1000).toFixed(0)} ms)</span>
+    ${GLOBAL ? `<span>automatic estimate <b>${GLOBAL.tau_s.toFixed(3)} s</b> [${GLOBAL.ci95[0].toFixed(3)}, ${GLOBAL.ci95[1].toFixed(3)}] from ${GLOBAL.windows} windows (player motion)</span>` : ""}
+    <span class="muted">burned-in clocks differ by ~14 s (1st half) / ~1 s (2nd half): independent clock settings, not used</span>
+    ${ins ? `<span class="pill bad">fixed file shows copied moving footage here (2711.9–2748.8 s)</span>` : ""}`;
+}
+$("#tM").onchange = show; $("#tau").oninput = show;
+$("#mPrev").onclick = () => { $("#tM").value = (+$("#tM").value - 1 / FPS).toFixed(4); show(); };
+$("#mNext").onclick = () => { $("#tM").value = (+$("#tM").value + 1 / FPS).toFixed(4); show(); };
+$("#tauEst").onclick = () => { $("#tau").value = EST; show(); };
+async function hist() {
+  const rows = await (await fetch("/api/sync-review")).json();
+  $("#hist").innerHTML = rows.length ? `<table><tr><th>time</th><th>reviewer</th><th>master t</th><th>offset</th><th>verdict</th><th>event</th></tr>${rows.map(r => `<tr><td>${esc(r.saved_utc)}</td><td>${esc(r.reviewer)}</td><td>${esc(r.master_t_s)}</td><td>${esc(r.tau_s)}</td><td>${esc(r.verdict)}</td><td>${esc(r.event)}</td></tr>`).join("")}</table>` : `<div class="empty">No manual decisions yet: the offset is an automatic estimate only (human verification pending).</div>`;
+}
+$("#save").onclick = async () => {
+  const reviewer = $("#reviewer").value.trim(); if (!reviewer) { $("#msg").innerHTML = `<span class="err">Enter your name first.</span>`; return; }
+  try { localStorage.setItem("m108_reviewer", reviewer); } catch (e) { }
+  const r = await fetch("/api/sync-review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewer, master_t_s: +$("#tM").value, tau_s: +(+$("#tau").value).toFixed(4),
+    verdict: $("#verdict").value, event: $("#event").value, fixed_frame: Math.round((+$("#tM").value + +$("#tau").value) * FPS), moving_frame: Math.round(+$("#tM").value * FPS) }) });
+  const d = await r.json(); $("#msg").innerHTML = r.ok ? `<span style="color:var(--matched)">Saved.</span>` : `<span class="err">${esc(d.error)}</span>`; hist();
+};
+(async () => {
+  try { const s = await (await fetch("/api/session/A_1825__corrected")).json(); GLOBAL = s.sync && s.sync.global; if (GLOBAL) { EST = GLOBAL.tau_s; } } catch (e) { }
+  $("#tau").value = q.get("tau") || EST; show(); hist();
+})();
+</script>
+</body>
+</html>

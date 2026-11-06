@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Multi-Camera Lab</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>Football Multi-Camera Lab</h1><span class="tag" title="Offline research prototype. Short clips only. Nothing here is a validated performance measurement.">EXPERIMENTAL</span>
+  <div class="mode" role="group" aria-label="Display mode">
+    <button id="mCoach" class="on" title="Simple view: what was seen, by which camera">Coach</button>
+    <button id="mResearch" title="Diagnostics: sync residuals, calibration variants, association statistics">Research</button>
+  </div>
+  <nav class="tabs">
+    <button data-view="analyse" class="on">Analyse</button>
+    <button data-view="process">Process video</button>
+    <button data-view="media">Media</button>
+    <button data-view="research" class="research">Research tables</button>
+    <a href="/review" title="Human review of cross-camera correspondences (benchmark)">Benchmark review</a>
+    <a href="/sync" title="Paired frames with an offset slider">Sync review</a>
+  </nav>
+</header>
+<main>
+<!-- ================= ANALYSE ================= -->
+<section id="analyse" class="view on">
+  <div class="bar">
+    <label title="Short analysis window (cached experiment output or a finished processing job)">Clip <select id="selGroup"></select></label>
+    <label title="Synchronisation + calibration settings used to build this clip">Method <select id="selMethod"></select></label>
+    <label title="Short-term tracker shown in boxes and used for the player panel">Tracker <select id="selTracker"></select></label>
+    <button class="b" id="bPrev" title="Previous instant (←)">◀︎</button>
+    <button class="b primary" id="bPlay" title="Play / pause (space)">Play</button>
+    <button class="b" id="bNext" title="Next instant (→)">▶︎</button>
+    <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Master timeline">
+    <span class="time" id="tLabel">–</span>
+    <label>Speed <select id="selSpeed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+  </div>
+  <div class="bar">
+    <span class="muted small">Layers</span>
+    <label><input type="checkbox" id="lBoxes" checked> boxes</label>
+    <label><input type="checkbox" id="lIds" checked> track IDs</label>
+    <label title="Pitch markings projected with the current calibration (centre circle 9.15 m solid, outer painted arc dashed)"><input type="checkbox" id="lCal"> calibration overlay</label>
+    <label><input type="checkbox" id="lLinks" checked> cross-camera links</label>
+    <label title="Positions predicted by the fixed-camera tracker while it misses a detection (never shown as observed)"><input type="checkbox" id="lPred" checked> predicted</label>
+    <label title="Moving-camera view footprint on the board"><input type="checkbox" id="lFoot" checked> moving-camera footprint</label>
+    <label title="Observed-position density for this clip (all people)"><input type="checkbox" id="lHeat"> observed heatmap</label>
+    <label>Trail <select id="selTrail"><option value="2">2 s</option><option value="5" selected>5 s</option><option value="1e9">whole clip</option><option value="0">off</option></select></label>
+  </div>
+  <div class="sync" id="syncBar"><span class="muted">Loading clips…</span></div>
+  <div class="grid wide">
+    <div class="card"><h3>Fixed camera <span class="src" id="srcFixed"></span></h3><canvas class="view" id="cvFixed" width="640" height="360"></canvas><div class="overlaymsg" id="msgFixed" hidden></div></div>
+    <div class="card"><h3>Moving camera <span class="src" id="srcMoving"></span></h3><canvas class="view" id="cvMoving" width="640" height="360"></canvas><div class="overlaymsg" id="msgMoving" hidden></div></div>
+    <div class="card"><h3>Pitch board <span class="src" title="Approximate metres; +x drawn to the left so the moving camera sits at the bottom">approx. metres</span></h3><canvas class="view" id="cvBoard" width="640" height="400"></canvas><div class="overlaymsg" id="msgBoard" hidden></div></div>
+  </div>
+  <div class="legend" id="legend">
+    <span><i style="background:var(--matched)"></i>seen by both cameras</span>
+    <span><i style="background:var(--ambiguous)"></i>ambiguous match</span>
+    <span><i style="background:var(--moving)"></i>moving camera only</span>
+    <span><i style="background:var(--fixed)"></i>fixed camera only</span>
+    <span><i style="background:transparent;border:1px dashed var(--pred)"></i>predicted (not observed)</span>
+    <span><i style="background:var(--off)"></i>off-pitch / no pitch position</span>
+    <span class="muted">Track IDs are short-term per camera and per clip; they are not player identities.</span>
+  </div>
+  <div class="grid" style="margin-top:10px">
+    <div class="card" id="playerCard"><h3>Player details <span class="src" id="playerHint">click a box or a board dot</span></h3><div id="player"><div class="empty">No player selected.</div></div></div>
+    <div class="side">
+      <div class="card"><h3>This instant</h3><div id="instInfo" class="small"></div></div>
+      <div class="card research"><h3>Clip diagnostics</h3><div id="clipDiag" class="small"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PROCESS ================= -->
+<section id="process" class="view">
+  <div class="grid">
+    <div class="card"><h3>1 · Upload a video</h3>
+      <div class="stack small">
+        <input type="file" id="upFile" accept=".mp4,.mov,.mkv,.avi,.m4v,.webm,video/*">
+        <div class="row"><button class="b primary" id="upGo">Upload</button><span id="upMsg" class="muted"></span></div>
+        <div class="progress" hidden id="upProg"><span style="width:0"></span></div>
+        <p class="muted">The file is streamed into <code>data/processed/multicam_lab/uploads/</code>, then its real container and first frame are checked; invalid files are rejected and removed. Originals are never modified.</p>
+      </div>
+    </div>
+    <div class="card"><h3>Available videos</h3><div id="videos" class="small"><div class="empty">Loading…</div></div></div>
+  </div>
+  <div class="card" style="margin-top:10px"><h3>2 · Configure a bounded processing job</h3>
+    <div class="stack small">
+      <div class="row">
+        <label>Mode <select id="jMode"><option value="single_camera">Single camera</option><option value="two_camera">Two cameras (same match)</option></select></label>
+        <label title="Seconds from the start of the master video">Start (s) <input type="number" id="jStart" value="1830" min="0" step="0.1" style="width:90px"></label>
+        <label title="At most 30 s per job (CPU, offline)">Duration (s) <input type="number" id="jDur" value="4" min="0.5" max="30" step="0.5" style="width:70px"></label>
+        <label>Confidence <input type="number" id="jConf" value="0.25" min="0.05" max="1" step="0.05" style="width:70px"></label>
+        <label>Image size <select id="jImg"><option>640</option><option>960</option><option>1280</option></select></label>
+      </div>
+      <div class="row"><label>Camera A (master) <select id="jVidA"></select></label><label>profile <select id="jProfA"></select></label></div>
+      <div class="row two" hidden><label>Camera B <select id="jVidB"></select></label><label>profile <select id="jProfB"></select></label>
+        <label title="Source time of B = master time + offset">offset B (s) <input type="number" id="jOff" value="-0.1" step="0.0333" style="width:80px"></label></div>
+      <div class="row two" hidden>
+        <label><input type="checkbox" id="jSame"> I confirm both recordings show the same match</label>
+        <label title="Cross-camera fusion runs only when the offset is estimated independently (or the files share a clock)">Sync state <select id="jSync">
+          <option value="estimated_independent">estimated independently (player motion)</option><option value="manual_unverified">manual / unverified (fusion blocked)</option>
+          <option value="unknown">unknown (fusion blocked)</option><option value="same_video">same recording clock</option></select></label>
+        <label>σ (s) <input type="number" id="jSig" value="0.05" step="0.01" style="width:70px"></label>
+      </div>
+      <div class="row"><label title="Fixed-camera calibration variant (only used when a matching profile is selected)">Calibration <select id="jCal">
+        <option value="">profile default</option><option value="m105_baseline">M10.5 baseline</option><option value="m107_refined_affine">M10.7 refined affine</option><option value="m107_line_fit">M10.7 painted-line fit</option></select></label>
+        <button class="b primary" id="jGo">Start job</button><span id="jMsg" class="small"></span></div>
+      <p class="muted">Runs the production detector (<code>models/vision/player_detector.pt</code>) with production ByteTrack via <code>python -m football_fatigue.vision --detection-only</code> on CPU, then maps to the pitch only when a calibration profile matches the recording's fingerprint. Supported modes: single-camera and two-camera offline clips. Live processing is not implemented (future work).</p>
+    </div>
+  </div>
+  <div class="card" style="margin-top:10px"><h3>Jobs</h3><div id="jobs" class="small"><div class="empty">No jobs yet.</div></div></div>
+</section>
+
+<!-- ================= MEDIA ================= -->
+<section id="media" class="view">
+  <div class="card"><h3>Demonstration videos and figures</h3><div id="mediaList" class="small"><div class="empty">Loading…</div></div></div>
+</section>
+
+<!-- ================= RESEARCH TABLES ================= -->
+<section id="research" class="view">
+  <div class="card"><h3>Study results (M10.8)</h3><div id="researchBody" class="small"><div class="empty">Loading…</div></div></div>
+</section>
+</main>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true"><div class="box">
+  <div class="row" style="justify-content:space-between;margin-bottom:8px"><b id="modalTitle"></b><button class="b" id="modalClose">Close</button></div>
+  <video id="modalVideo" controls preload="metadata" playsinline></video><img id="modalImg" alt="" style="max-width:100%;display:none">
+  <div class="small muted" id="modalStatus" style="margin-top:6px"></div>
+</div></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Correspondence Review</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+.zoomwrap{overflow:auto;max-height:70vh;border-radius:6px;background:#020711}
+.zoomwrap canvas{display:block;cursor:crosshair}
+.pair{display:grid;grid-template-columns:90px 1fr auto;gap:6px;align-items:center;border-bottom:1px solid var(--line);padding:4px 0}
+.dec button{padding:2px 7px;font-size:12px}
+.dec button.on{background:var(--acc);color:#04121f;border-color:var(--acc)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Cross-camera correspondence review</h1><span class="tag">BENCHMARK · HUMAN REVIEW</span>
+  <nav class="tabs"><a href="/">← Lab</a><a href="/sync">Sync review</a></nav>
+</header>
+<main>
+  <div class="bar">
+    <label>Item <select id="selItem"></select></label>
+    <span id="itemState"></span>
+    <label>Zoom <select id="zoom"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option><option value="4">4×</option></select></label>
+    <label>Reviewer <input type="text" id="reviewer" placeholder="your name (required)" style="width:170px"></label>
+    <button class="b primary" id="save">Save review</button><span id="saveMsg" class="small"></span>
+  </div>
+  <p class="small muted">Click a detection in the fixed view, then its counterpart in the moving view to propose a pair. Use the buttons to confirm, reject or mark a pair unresolvable, and flag occlusion or merged boxes.
+    “Correct foot point” lets you click the true ground-contact point of the selected detection. Dashed suggestions are the <b>assistant-generated M10.7 labels</b> or machine links: they are <b>not</b> ground truth and are never edited here; your decisions are saved separately (append-only, with your name and time) in <code>data/processed/multicam_lab/reviews/benchmark_reviews_v1.jsonl</code>.</p>
+  <div class="grid">
+    <div class="card"><h3>Fixed camera <span class="src" id="srcF"></span></h3><div class="zoomwrap"><canvas id="cvF"></canvas></div></div>
+    <div class="card"><h3>Moving camera <span class="src" id="srcM"></span></h3><div class="zoomwrap"><canvas id="cvM"></canvas></div></div>
+  </div>
+  <div class="grid" style="margin-top:10px">
+    <div class="card"><h3>Pairs <span class="src">F = fixed detection index, M = moving detection index</span></h3><div id="pairs" class="small"></div></div>
+    <div class="card"><h3>Selected detection</h3><div id="selInfo" class="small"><div class="empty">Nothing selected.</div></div>
+      <div class="row" style="margin-top:6px"><button class="b" id="footBtn" disabled>Correct foot point</button>
+        <label><input type="checkbox" id="fOcc" disabled> occluded</label><label><input type="checkbox" id="fMerged" disabled> merged / duplicate box</label>
+        <label><input type="checkbox" id="fUnres" disabled> unresolvable</label></div>
+      <textarea id="notes" placeholder="notes (optional)" style="width:100%;margin-top:8px;min-height:60px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px"></textarea>
+      <div id="history" class="small muted" style="margin-top:6px"></div></div>
+  </div>
+</main>
+<script>
+"use strict";
+const $ = s => document.querySelector(s), esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const R = { items: [], it: null, S: null, inst: null, imgs: {}, pairs: [], sel: null, pendingF: null, footMode: false, feet: {}, flags: {}, reviews: [] };
+try { $("#reviewer").value = localStorage.getItem("m108_reviewer") || ""; } catch (e) { }
+async function j(u, o) { const r = await fetch(u, o); const d = await r.json(); if (!r.ok) throw new Error(d.error || r.status); return d; }
+async function init() {
+  try { R.items = await j("/api/review/items"); R.reviews = await j("/api/review"); } catch (e) { $("#pairs").innerHTML = `<div class="empty err">${esc(e.message)}</div>`; return; }
+  if (!R.items.length) { $("#pairs").innerHTML = `<div class="empty">No review items prepared.</div>`; return; }
+  $("#selItem").innerHTML = R.items.map((it, k) => `<option value="${k}">${esc(it.item)}${R.reviews.some(r => r.item === it.item) ? " ✓ reviewed" : " · validation pending"}</option>`).join("");
+  $("#selItem").onchange = () => openItem(+$("#selItem").value); openItem(0);
+}
+async function openItem(k) {
+  R.it = R.items[k]; R.S = await j(`/api/session/${encodeURIComponent(R.it.session)}`); R.inst = R.S.instants[R.it.instant];
+  R.sel = null; R.pendingF = null; R.feet = {}; R.flags = {};
+  const prov = R.it.provisional_pairs.map(p => ({ F: [].concat(p.F), M: [].concat(p.M), decision: null, source: "assistant (M10.7, provisional)", why: p.why || "", status: p.status || "" }));
+  const mach = prov.length ? [] : (R.inst.links || []).map(l => ({ F: [l.kb], M: [l.ka], decision: null, source: "machine link (suggestion)", why: `d ${l.d_m} m${l.ambiguous ? ", ambiguous" : ""}`, status: "" }));
+  R.pairs = prov.concat(mach);
+  const mine = R.reviews.filter(r => r.item === R.it.item);
+  $("#history").textContent = mine.length ? `${mine.length} saved review(s) for this item: last by ${mine[mine.length - 1].reviewer} at ${mine[mine.length - 1].saved_utc}.` : "Validation pending: no human review saved for this item.";
+  $("#itemState").innerHTML = mine.length ? `<span class="pill ok">reviewed</span>` : `<span class="pill warn">validation pending</span>`;
+  const c = R.inst.cams; $("#srcF").textContent = `frame ${c.fixed.idx} · ${c.fixed.t_src.toFixed(3)} s`; $("#srcM").textContent = `frame ${c.moving.idx} · ${c.moving.t_src.toFixed(3)} s`;
+  const load = (key, idx) => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = `/api/frame?video=${encodeURIComponent(key)}&idx=${idx}`; });
+  [R.imgs.fixed, R.imgs.moving] = await Promise.all([load(R.S.cameras.fixed.video_key, c.fixed.idx), load(R.S.cameras.moving.video_key, c.moving.idx)]);
+  draw(); renderPairs(); renderSel();
+}
+function pairOf(cam, k) { return R.pairs.find(p => (cam === "fixed" ? p.F : p.M).includes(k)); }
+function draw() {
+  const z = +$("#zoom").value;
+  for (const [cam, cv] of [["fixed", $("#cvF")], ["moving", $("#cvM")]]) {
+    const im = R.imgs[cam], ctx = cv.getContext("2d"); cv.width = 640 * z; cv.height = 360 * z;
+    if (!im) { ctx.fillStyle = "#300"; ctx.fillRect(0, 0, cv.width, cv.height); ctx.fillStyle = "#fff"; ctx.fillText("frame unavailable", 20, 20); continue; }
+    ctx.imageSmoothingEnabled = z < 3; ctx.drawImage(im, 0, 0, cv.width, cv.height);
+    for (const o of R.inst.obs[cam] || []) {
+      const p = pairOf(cam, o.k), [x1, y1, x2, y2] = o.box.map(v => v * z);
+      const col = !p ? "#94a3b8" : p.decision === "confirm" ? "#22c55e" : p.decision === "reject" ? "#f87171" : p.decision === "unresolvable" ? "#64748b" : "#fde68a";
+      const isSel = R.sel && R.sel.cam === cam && R.sel.k === o.k; ctx.strokeStyle = isSel ? "#fff" : col; ctx.lineWidth = isSel ? 3 : 1.5;
+      if (p && !p.decision) ctx.setLineDash([4, 3]); ctx.strokeRect(x1, y1, x2 - x1, y2 - y1); ctx.setLineDash([]);
+      ctx.font = `${10 + 2 * z}px system-ui`; ctx.fillStyle = "rgba(2,7,17,.8)"; const t = `${cam === "fixed" ? "F" : "M"}${o.k}`; ctx.fillRect(x1, y1 - 12 - 2 * z, ctx.measureText(t).width + 4, 12 + 2 * z);
+      ctx.fillStyle = isSel ? "#fff" : col; ctx.fillText(t, x1 + 2, y1 - 3);
+      const ft = R.feet[cam + ":" + o.k]; if (ft) { ctx.beginPath(); ctx.arc(ft[0] * z, ft[1] * z, 4, 0, 7); ctx.fillStyle = "#f472b6"; ctx.fill(); }
+    }
+  }
+}
+function hit(cv, ev, cam) {
+  const r = cv.getBoundingClientRect(), z = +$("#zoom").value, x = (ev.clientX - r.left) * cv.width / r.width / z, y = (ev.clientY - r.top) * cv.height / r.height / z;
+  if (R.footMode && R.sel && R.sel.cam === cam) { R.feet[cam + ":" + R.sel.k] = [+x.toFixed(1), +y.toFixed(1)]; R.footMode = false; $("#footBtn").textContent = "Correct foot point"; draw(); renderSel(); return; }
+  let best = null, ba = 1e9; for (const o of R.inst.obs[cam] || []) { const [x1, y1, x2, y2] = o.box; if (x >= x1 - 2 && x <= x2 + 2 && y >= y1 - 2 && y <= y2 + 2 && (x2 - x1) * (y2 - y1) < ba) { ba = (x2 - x1) * (y2 - y1); best = o; } }
+  if (!best) return; R.sel = { cam, k: best.k };
+  if (cam === "fixed") R.pendingF = best.k;
+  else if (R.pendingF !== null) {
+    R.pairs = R.pairs.filter(p => !(p.F.includes(R.pendingF) && !p.decision && p.source.startsWith("machine")));
+    R.pairs.push({ F: [R.pendingF], M: [best.k], decision: "confirm", source: "reviewer", why: "", status: "" }); R.pendingF = null;
+  }
+  draw(); renderPairs(); renderSel();
+}
+$("#cvF").onclick = ev => hit($("#cvF"), ev, "fixed"); $("#cvM").onclick = ev => hit($("#cvM"), ev, "moving");
+$("#zoom").onchange = draw;
+function renderPairs() {
+  $("#pairs").innerHTML = R.pairs.length ? R.pairs.map((p, i) => `<div class="pair"><b>F${p.F.join("/")} ↔ M${p.M.join("/")}</b>
+    <span class="muted">${esc(p.source)}${p.status ? " · " + esc(p.status) : ""}${p.why ? " · " + esc(p.why) : ""}</span>
+    <span class="dec">${["confirm", "reject", "unresolvable"].map(d => `<button class="b ${p.decision === d ? "on" : ""}" data-i="${i}" data-d="${d}">${d}</button>`).join("")}</span></div>`).join("")
+    : `<div class="empty">No suggestions for this item. Click a fixed detection, then a moving detection, to add a pair.</div>`;
+  document.querySelectorAll(".dec button").forEach(b => b.onclick = () => { const p = R.pairs[+b.dataset.i]; p.decision = p.decision === b.dataset.d ? null : b.dataset.d; draw(); renderPairs(); });
+  const n = R.pairs.filter(p => p.decision).length; $("#saveMsg").textContent = `${n}/${R.pairs.length} pairs decided`;
+}
+function renderSel() {
+  const on = !!R.sel; ["#footBtn", "#fOcc", "#fMerged", "#fUnres"].forEach(s => $(s).disabled = !on);
+  if (!on) { $("#selInfo").innerHTML = `<div class="empty">Nothing selected.</div>`; return; }
+  const o = R.inst.obs[R.sel.cam].find(x => x.k === R.sel.k), key = R.sel.cam + ":" + R.sel.k, fl = R.flags[key] || {};
+  $("#fOcc").checked = !!fl.occluded; $("#fMerged").checked = !!fl.merged; $("#fUnres").checked = !!fl.unresolvable;
+  $("#selInfo").innerHTML = `<dl class="kv"><dt>detection</dt><dd>${R.sel.cam === "fixed" ? "F" : "M"}${o.k} (${esc({ p: "player", r: "referee", g: "goalkeeper", b: "ball" }[o.cls] || o.cls)}, conf ${o.conf})</dd>
+    <dt>box</dt><dd>${o.box.join(", ")}</dd><dt>detector foot point</dt><dd>${((o.box[0] + o.box[2]) / 2).toFixed(1)}, ${o.box[3]}</dd>
+    <dt>corrected foot point</dt><dd>${R.feet[key] ? R.feet[key].join(", ") : "–"}</dd>${R.pendingF !== null ? `<dt>next</dt><dd>click the matching moving detection</dd>` : ""}</dl>`;
+}
+for (const [id, f] of [["#fOcc", "occluded"], ["#fMerged", "merged"], ["#fUnres", "unresolvable"]]) $(id).onchange = () => { const k = R.sel.cam + ":" + R.sel.k; R.flags[k] = { ...(R.flags[k] || {}), [f]: $(id).checked }; };
+$("#footBtn").onclick = () => { R.footMode = !R.footMode; $("#footBtn").textContent = R.footMode ? "Click the foot point…" : "Correct foot point"; };
+$("#save").onclick = async () => {
+  const reviewer = $("#reviewer").value.trim(); if (!reviewer) { $("#saveMsg").innerHTML = `<span class="err">Enter your name first (provenance).</span>`; return; }
+  try { localStorage.setItem("m108_reviewer", reviewer); } catch (e) { }
+  const body = { item: R.it.item, session: R.it.session, instant: R.it.instant, fixed_frame: R.inst.cams.fixed.idx, moving_frame: R.inst.cams.moving.idx, reviewer,
+    pairs: R.pairs.map(p => ({ F: p.F, M: p.M, decision: p.decision || "undecided", suggestion_source: p.source })),
+    detection_flags: R.flags, foot_corrections_px: R.feet, notes: $("#notes").value, provisional_labels_unchanged: true };
+  try { const d = await j("/api/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    $("#saveMsg").innerHTML = `<span style="color:var(--matched)">Saved to ${esc(d.file)}</span>`; R.reviews = await j("/api/review"); $("#itemState").innerHTML = `<span class="pill ok">reviewed</span>`; }
+  catch (e) { $("#saveMsg").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+};
+init();
+</script>
+</body>
+</html>
