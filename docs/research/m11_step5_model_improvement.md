@@ -566,7 +566,7 @@ swerved, which our features cannot express from task B endpoints, or the provide
 **Housekeeping.**
 - `m11-ml-v2` is 637 MB, mostly forest models in `models/`.
 - A smoke run first wrote by mistake to `F:\c\Users\...` (a shell path translation). It was moved into the session scratchpad,
-  which leaves an empty `F:\c\Users\DELL\AppData\Local\Temp\claude\...` folder tree outside the repository. Nothing was deleted.
+  which leaves an empty `F:\c\Users\<user>\AppData\Local\Temp\claude\...` folder tree outside the repository. Nothing was deleted.
 
 ## 12. Scientific limitations
 

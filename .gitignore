@@ -44,3 +44,6 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 .claude/settings.local.json
+
+# Local demo asset bundle (generated data, too large for Git)
+/wadi-degla-demo-assets.zip
