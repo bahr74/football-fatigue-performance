@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Football Vision Demo</title>
+<style>
+:root{color-scheme:dark;--bg:#07111d;--panel:#0f1f33;--line:#29445f;--muted:#9fb3c8;--ink:#eef5ff;--ok:#22c55e;--prov:#f59e0b;--unk:#94a3b8;--amb:#ef4444;--blue:#60a5fa}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.4 Inter,system-ui,Segoe UI,sans-serif}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line)}
+h1{font-size:16px;margin:0 8px 0 0}.badge{border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--muted);font-size:11px}
+.badge.warn{border-color:#a16207;color:#fcd34d}.badge.bad{border-color:#b91c1c;color:#fca5a5}
+main{padding:10px 14px;display:grid;gap:10px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px}
+.ptitle{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px}
+#stage{position:relative;width:100%;height:clamp(250px,36vh,400px);background:#000;overflow:hidden;border-radius:8px;cursor:crosshair}
+#vid{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}#ov{position:absolute;inset:0;width:100%;height:100%}
+#novideo{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;color:#fca5a5;padding:20px;background:rgba(0,0,0,.6)}
+#seeking{position:absolute;right:10px;top:8px;background:#000a;padding:2px 8px;border-radius:6px;display:none;color:#fcd34d}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select{background:#142943;color:#dcecff;border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit}
+button.on{background:#1d4e80;border-color:var(--blue)}button:hover{filter:brightness(1.2)}
+label.chk{display:flex;gap:4px;align-items:center;color:#cfe0f3;cursor:pointer}
+#top{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:10px;align-items:start}#info{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) minmax(0,1fr);gap:10px;align-items:start}
+#boardwrap{position:relative}#board{width:100%;height:auto;display:block;background:#0b2a1c;border-radius:8px;cursor:pointer}
+#tl{width:100%;height:56px;display:block;cursor:pointer;border-radius:6px;background:#0a1626}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px}.kv b{color:var(--muted);font-weight:500}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.card{background:#0a1626;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.card .n{font-size:20px;font-weight:600}.card .l{color:var(--muted);font-size:11px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.legend span{margin-right:12px;white-space:nowrap}.note{color:#fcd34d;font-size:11px}.mut{color:var(--muted)}
+details summary{cursor:pointer;color:var(--muted)}
+#lim li{margin:2px 0;color:#cbd5e1}.time{font-variant-numeric:tabular-nums;font-size:15px;font-weight:600}
+@media(max-width:1100px){#top,#info,#anaBody{grid-template-columns:1fr!important}}
+.rb{display:inline-block;border-radius:6px;padding:1px 7px;margin:2px 4px 2px 0;font-size:11px;border:1px solid var(--line)}.rb.ok{border-color:#15803d;color:#86efac}.rb.no{border-color:#b91c1c;color:#fca5a5}.rb.ex{border-color:#a16207;color:#fcd34d}
+</style>
+</head>
+<body>
+<header>
+  <h1>Football Vision Demo</h1>
+  <span class="badge" id="bMatch">loading…</span>
+  <span class="badge warn">DEVELOPMENT MATCH · EXPERIMENTAL</span>
+  <span class="badge warn" id="bSpace">PIXEL SPACE · NON-METRIC</span>
+  <span class="badge" id="bVideo"></span>
+</header>
+<main>
+  <div id="top">
+  <section class="panel">
+    <div class="ptitle"><span>Match video + saved detections / tracks / identity (image space, master clock = video)</span>
+      <span class="row"><button data-zoom="1" class="on">Fit</button><button data-zoom="2">2×</button><button data-zoom="4">4×</button>
+      <label class="chk"><input type="checkbox" id="follow"> follow selected</label></span></div>
+    <div id="stage"><video id="vid" muted playsinline preload="auto"></video><canvas id="ov"></canvas>
+      <div id="seeking">seeking…</div>
+      <div id="novideo"><div><b>Source video not available.</b><br>Detections and the board run on a stand-in clock (no video pixels).<br><span id="novideoMsg"></span></div></div></div>
+    <div style="margin-top:8px"><canvas id="tl" title="Click / drag to seek. Colours: share of confirmed / provisional / unknown boxes per ~4 s; line = detections"></canvas></div>
+    <div class="row" style="margin-top:6px">
+      <button id="play">▶ Play</button><button id="b1" title="back 1 frame">−1f</button><button id="f1" title="forward 1 frame">+1f</button>
+      <button id="b25">−1 s</button><button id="f25">+1 s</button>
+      <select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
+      <span class="time" id="clock">frame 0 · 0:00.00</span><span class="mut" id="clockInfo"></span>
+      <span style="flex:1"></span>
+      <span class="mut">Labels:</span><button id="idLocal" class="on">Local tracker ID</button><button id="idGlobal">Global ID hypothesis</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label class="chk"><input type="checkbox" id="oBoxes" checked> boxes</label>
+      <label class="chk"><input type="checkbox" id="oLabels" checked> labels</label>
+      <label class="chk"><input type="checkbox" id="oTeam" checked> team colour</label>
+      <label class="chk"><input type="checkbox" id="oConf"> confirmed only</label>
+      <label class="chk"><input type="checkbox" id="oEst"> display-interpolated (≤<span id="gapN">5</span> f, estimated)</label>
+      <label class="chk"><input type="checkbox" id="oTrail" checked> safe-segment trail</label>
+      <label class="chk" title="Reprojected pitch markings, calibration keypoints (colour = leave-one-out error) and foot points"><input type="checkbox" id="oCal"> calibration layer</label>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <span class="mut">People:</span><span id="roleBtns"><button data-role="all" class="on">All detected</button><button data-role="active">Active-player candidates</button><button data-role="1">Goalkeepers</button><button data-role="2">Officials</button><button data-role="3">Unknown role</button></span>
+      <span class="mut">Colour:</span><select id="colourBy"><option value="team">team (conf ≥ 0.7)</option><option value="role">role</option></select>
+      <span class="legend" id="roleLegend"></span>
+    </div>
+    <div class="row" style="margin-top:4px">
+      <span class="legend"><span><i class="dot" style="background:var(--ok)"></i>confirmed (solid)</span><span><i class="dot" style="background:var(--prov)"></i>provisional (dashed)</span><span><i class="dot" style="background:var(--unk)"></i>unknown (dotted)</span><span><i class="dot" style="background:var(--amb)"></i>ambiguous (dotted)</span></span>
+    </div>
+  </section>
+
+  <section class="panel"><div class="ptitle"><span id="boardTitle">2D tactical board — APPROXIMATE · NON-METRIC (image-space layout)</span><span class="row"><button id="bmPitch">Pitch projection (approx.)</button><button id="bmImage">Image layout</button></span></div>
+      <div id="boardwrap"><canvas id="board" width="1110" height="740"></canvas></div>
+      <div class="mut" id="boardInfo" style="margin-top:4px"></div>
+      <div class="note" id="noteImage" style="margin-top:4px">Origin: top-left of the video frame · units: pixels, normalised to this schematic · projection: none. Marker positions are foot points; the pitch drawing is a schematic, not registered to the image. No distance, speed or workload can be read from this board.</div>
+      <div class="note" id="notePitch" style="margin-top:4px;display:none"></div>
+    </section>
+  </div>
+  <div id="info">
+      <section class="panel"><div class="ptitle"><span>Current frame</span><span id="frInfo" class="mut"></span></div>
+        <div class="cards">
+          <div class="card"><div class="n" id="cDet">–</div><div class="l">detections</div></div>
+          <div class="card"><div class="n" id="cAct">–</div><div class="l">active tracks</div></div>
+          <div class="card"><div class="n" id="cEst">–</div><div class="l">estimated shown</div></div>
+          <div class="card"><div class="n" id="cTr">–</div><div class="l">trusted share</div></div>
+          <div class="card"><div class="n" style="color:var(--ok)" id="cC">–</div><div class="l">confirmed</div></div>
+          <div class="card"><div class="n" style="color:var(--prov)" id="cP">–</div><div class="l">provisional</div></div>
+          <div class="card"><div class="n" style="color:var(--unk)" id="cU">–</div><div class="l">unknown</div></div>
+          <div class="card"><div class="n" style="color:var(--amb)" id="cA">–</div><div class="l">ambiguous</div></div>
+          <div class="card"><div class="n" id="cR0">–</div><div class="l">player candidates</div></div>
+          <div class="card"><div class="n" id="cR1">–</div><div class="l">goalkeepers</div></div>
+          <div class="card"><div class="n" id="cR2">–</div><div class="l">official candidates</div></div>
+          <div class="card"><div class="n" id="cR3">–</div><div class="l">unknown role</div></div>
+        </div><div class="mut" style="font-size:11px;margin-top:4px">Counts are observed boxes in this frame (all people, no cap). Roles: detector class + team cluster + pitch validity; off-pitch and third-cluster people stay unknown.</div></section>
+      <section class="panel"><div class="ptitle"><span>Selected player</span><button id="clearSel">clear</button></div>
+        <div id="sel" class="mut">Click a box in the video or a marker on the board.</div>
+        <div id="idtlWrap" style="display:none;margin-top:6px"><div class="mut" style="font-size:11px">Identity continuity of this tracker ID (whole match): colour = status per observed frame, gap = not detected, ▲ = safe-segment boundary, green bar under = attributable segment, blue line = current frame. Click to seek.</div>
+          <canvas id="idtl" style="width:100%;height:46px;display:block;cursor:pointer;background:#0a1626;border-radius:6px"></canvas></div></section>
+      <section class="panel"><div class="ptitle"><span>Match insights (saved outputs)</span></div>
+        <div id="insights" class="kv"></div>
+        <canvas id="hist" width="520" height="90" style="width:100%;margin-top:6px"></canvas>
+        <div class="mut" style="font-size:11px">Identity-confidence distribution of observed boxes by status (20 bins, 0→1).</div></section>
+      <section class="panel"><details><summary>Limitations (read before presenting)</summary><ul id="lim"></ul></details></section>
+  </div>
+  <section class="panel" id="anaPanel"><div class="ptitle"><span>Team analytics — visible players only, approximate pitch positions</span>
+      <span class="row"><span class="mut">window:</span><select id="anaWin"><option value="all">whole clip</option><option value="1500">last 60 s to current frame</option><option value="375">last 15 s to current frame</option></select></span></div>
+    <div id="anaBody" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr);gap:10px;align-items:start">
+      <div><div class="mut" style="font-size:11px">Zone occupancy · team_0 (6×4 zones, share of observed on-pitch samples)</div><canvas id="hm0" width="420" height="272" style="width:100%"></canvas></div>
+      <div><div class="mut" style="font-size:11px">Zone occupancy · team_1</div><canvas id="hm1" width="420" height="272" style="width:100%"></canvas></div>
+      <div><div id="anaTable" class="kv"></div><div id="ready" style="margin-top:8px"></div></div>
+    </div></section>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const S={ov:null,frame:0,sel:null,idMode:"local",zoom:1,vx:0,seeking:false,playing:false,rendered:-1,log:[],haveVideo:false,clockT:0,clockRef:0,nFrames:0};
+const COL={confirmed:"#22c55e",provisional:"#f59e0b",unknown:"#94a3b8",ambiguous:"#ef4444"};
+const DASH={confirmed:[],provisional:[8,5],unknown:[2,4],ambiguous:[2,4]};
+const TEAMCOL={team_0:"#3b82f6",team_1:"#f8fafc",other:"#facc15"};
+const ROLECOL=["#22d3ee","#c084fc","#fb923c","#64748b"],ROLENAME=["player candidate","goalkeeper","official candidate","unknown role"];
+S.boardMode="image";S.role="all";
+let C=null,off=null,byLocal=null;
+const hasPitch=()=>!!(S.ov&&S.ov.calibration&&C&&C.pxm);
+const vid=$("vid"),ov=$("ov"),ctx=ov.getContext("2d"),bd=$("board"),bctx=bd.getContext("2d"),tl=$("tl"),tctx=tl.getContext("2d");
+
+function fmt(f){const t=f/S.ov.fps,m=Math.floor(t/60),s=t-60*m;return `${m}:${s.toFixed(2).padStart(5,"0")}`}
+function statusName(i){return i<0?"none":S.ov.statuses[i]}
+function boxesOf(f){ // indices of boxes in frame f, honouring the display toggles
+  const a=[];if(f<0||f>=S.nFrames)return a;
+  for(let i=off[f];i<off[f+1];i++){
+    if(C.est[i]&&!$("oEst").checked)continue;
+    if($("oConf").checked&&S.ov.statuses[C.st[i]]!=="confirmed")continue;
+    if(S.role!=="all"&&C.role){const r=C.role[i];if(S.role==="active"?(r!==0&&r!==1):r!==+S.role)continue}
+    a.push(i);
+  }return a;}
+function label(i){
+  const st=statusName(C.st[i]),linked=C.as[i]===1;
+  if(S.idMode==="local")return "L"+C.local[i];
+  if(st==="unknown"||st==="ambiguous")return "?";
+  if(st==="confirmed"&&!linked)return "G"+C.gid[i];
+  if(st==="provisional"||linked)return "G"+C.gid[i]+"?";
+  return "?";}
+function teamColour(i){const t=C.team[i];if(t<0||(C.tconf[i]??0)<S.ov.team_reliable)return null;return TEAMCOL[S.ov.teams[t]]}
+function chipColour(i){if($("colourBy").value==="role"&&C.role)return ROLECOL[C.role[i]];return teamColour(i)}
+
+/* ---------- master clock: the video element (or a stand-in clock when the video is unavailable) ---------- */
+function mediaTime(){return S.haveVideo?vid.currentTime:S.clockRef+(S.playing?(performance.now()-S.clockT)/1000*parseFloat($("speed").value):0)}
+/* PTS(f)=start+f/fps exactly (verified with PyAV); floor also maps mid-frame seek targets */
+function frameFromTime(t){const f=Math.floor((t-S.ov.video.start_time_s)*S.ov.fps+0.05);return Math.max(0,Math.min(S.nFrames-1,f))}
+function seekFrame(f){f=Math.max(0,Math.min(S.nFrames-1,Math.round(f)));const t=S.ov.video.start_time_s+(f+0.5)/S.ov.fps;
+  if(S.haveVideo&&Math.abs(vid.currentTime-t)<1e-4){render(f);return}
+  if(S.haveVideo){S.target=f;S.seeking=true;$("seeking").style.display="block";vid.currentTime=t}else{S.clockRef=t;S.clockT=performance.now();render(f)}}
+function onPresented(now,meta){ // requestVideoFrameCallback: exact presented media time
+  vid.requestVideoFrameCallback(onPresented);
+  const f=frameFromTime(meta.mediaTime);
+  if(S.seeking&&Math.abs(f-S.target)>1)return; // stale frame presented while a seek is in flight: ignore, the clock is the seek target
+  S.seeking=false;$("seeking").style.display="none";render(f,meta)}
+vid.addEventListener("seeked",()=>{S.seeking=false;$("seeking").style.display="none";render(frameFromTime(vid.currentTime))});
+vid.addEventListener("ended",()=>{S.playing=false;$("play").textContent="▶ Play"});
+
+/* Frame<->time mapping is PTS(f)=start+f/fps. Never trust a stored start blindly: measure the first presented frame's mediaTime
+   (seek before the first PTS; the browser presents frame 0) and use it if it disagrees with the overlay (a wrong start shifts every overlay by error*fps frames). */
+async function calibrateStart(){
+  const stored=S.ov.video.start_time_s;S.startStored=stored;S.startMeasured=null;
+  const m=await new Promise(res=>{const to=setTimeout(()=>res(null),3000);
+    vid.requestVideoFrameCallback((now,meta)=>{clearTimeout(to);res(meta.mediaTime)});vid.currentTime=0});
+  S.startMeasured=m;
+  if(m!=null&&Math.abs(m-stored)>0.004){S.ov.video.start_time_s=m;$("bVideo").textContent+=` · start offset corrected ${stored.toFixed(3)}→${m.toFixed(3)} s`;$("bVideo").className="badge warn"}
+}
+/* ---------- drawing ---------- */
+function viewScale(){const w=ov.clientWidth,h=ov.clientHeight,W=S.ov.image.width_px,H=S.ov.image.height_px;
+  const fit=Math.min(w/W,h/H);const s=S.zoom===1?fit:Math.max(fit,w/W*S.zoom);return {s,w,h,W,H,fit}}
+function placeVideo(){const v=viewScale();const sw=v.W*v.s,sh=v.H*v.s;
+  const maxx=Math.max(0,sw-v.w);S.vx=Math.max(0,Math.min(maxx,S.vx));
+  const maxy=Math.max(0,sh-v.h);S.vy=Math.max(0,Math.min(maxy,S.vy||0));
+  const y0=sh<=v.h?(v.h-sh)/2:-S.vy; // letterbox when it fits, else vertical pan
+  const tx=sw<=v.w?(v.w-sw)/2:-S.vx;
+  vid.style.width=sw+"px";vid.style.height=sh+"px";vid.style.transform=`translate(${tx}px,${y0}px)`;S.tx=tx;S.ty=y0;S.sc=v.s}
+function toScr(x,y){return [S.tx+x*S.sc,S.ty+y*S.sc]}
+function drawVideoOverlay(f){
+  const dpr=window.devicePixelRatio||1;if(ov.width!==Math.round(ov.clientWidth*dpr)){ov.width=Math.round(ov.clientWidth*dpr);ov.height=Math.round(ov.clientHeight*dpr)}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,ov.clientWidth,ov.clientHeight);
+  placeVideo();
+  if(S.follow&&S.sel!=null){const j=lastBoxOf(S.sel,f);if(j>=0){const cx=(C.x1[j]+C.x2[j])/2*S.sc,cy=(C.y1[j]+C.y2[j])/2*S.sc;S.vx=cx-ov.clientWidth/2;S.vy=cy-ov.clientHeight/2}}
+  placeVideo();
+  S.hit=[];const ids=boxesOf(f);
+  const showBoxes=$("oBoxes").checked,showLab=$("oLabels").checked;
+  if($("oCal").checked&&hasPitch())drawCalibration(ids);
+  if(S.sel!=null&&$("oTrail").checked)trail(f,i=>toScr((C.x1[i]+C.x2[i])/2,C.y2[i]),ctx,2);
+  ctx.font="600 11px system-ui";ctx.textBaseline="bottom";
+  for(const i of ids){
+    const [x1,y1]=toScr(C.x1[i],C.y1[i]),[x2,y2]=toScr(C.x2[i],C.y2[i]);
+    if(x2<0||x1>ov.clientWidth)continue;
+    const st=statusName(C.st[i]),est=C.est[i]===1,sel=C.local[i]===S.sel;
+    S.hit.push([i,x1,y1,x2,y2]);
+    if(showBoxes){ctx.lineWidth=sel?3:1.5;ctx.strokeStyle=est?"#cbd5e1":COL[st]||"#fff";ctx.setLineDash(est?[3,3]:DASH[st]||[]);ctx.globalAlpha=est?0.6:1;ctx.strokeRect(x1,y1,x2-x1,y2-y1);ctx.setLineDash([]);ctx.globalAlpha=1}
+    if(showLab){const tc=$("oTeam").checked?chipColour(i):null;const txt=label(i)+(est?" ~":"");
+      const w=ctx.measureText(txt).width+(tc?10:4);ctx.fillStyle="#000b";ctx.fillRect(x1,y1-14,w,14);
+      if(tc){ctx.fillStyle=tc;ctx.fillRect(x1+1,y1-12,6,10)}
+      ctx.fillStyle=est?"#e2e8f0":(COL[st]||"#fff");ctx.fillText(txt,x1+(tc?9:2),y1-1);S.log.length<400&&S.log.push(txt)}
+  }}
+function lastBoxOf(local,f){const a=byLocal.get(local);if(!a)return -1;let lo=0,hi=a.length-1,r=-1;
+  while(lo<=hi){const m=(lo+hi)>>1;if(frameOfBox[a[m]]<=f){r=m;lo=m+1}else hi=m-1}
+  return r<0?-1:a[r]}
+function trail(f,map,c,w){ // foot-point trail of the selected local track (map: box index -> screen), strictly inside one safe segment, observed samples only
+  const a=byLocal.get(S.sel);if(!a)return;let k=-1;for(let lo=0,hi=a.length-1;lo<=hi;){const m=(lo+hi)>>1;if(frameOfBox[a[m]]<=f){k=m;lo=m+1}else hi=m-1}
+  if(k<0)return;c.beginPath();let n=0,prev=null;
+  for(let q=k;q>=0&&n<75;q--){const i=a[q];if(C.est[i])continue;if(prev!==null&&(C.seg[i]!==C.seg[prev]||frameOfBox[prev]-frameOfBox[i]!==1))break;
+    const p=map(i);if(!p)break;n?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]);prev=i;n++}
+  c.strokeStyle="#38bdf8";c.lineWidth=w;c.stroke()}
+function drawCalibration(ids){ // diagnostic: reprojected pitch markings, keypoints coloured by leave-one-out error, foot points by pitch validity
+  const cal=S.ov.calibration;ctx.lineWidth=1.5;ctx.strokeStyle="#f472b6cc";ctx.setLineDash([6,4]);
+  for(const ln of cal.lines_image_px){ctx.beginPath();ln.forEach((p,k)=>{const [x,y]=toScr(p[0],p[1]);k?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke()}
+  ctx.setLineDash([]);ctx.font="10px system-ui";ctx.textBaseline="middle";
+  for(const kp of cal.keypoints){const [x,y]=toScr(kp.image_px[0],kp.image_px[1]),e=kp.loo_err_m;
+    ctx.fillStyle=e<=0.5?"#22c55e":e<=1?"#facc15":"#ef4444";ctx.beginPath();ctx.arc(x,y,4,0,7);ctx.fill();ctx.strokeStyle="#000";ctx.lineWidth=1;ctx.stroke();
+    if(S.zoom>1){ctx.fillStyle="#fff";ctx.fillText(e.toFixed(2)+" m",x+6,y)}}
+  for(const i of ids){const [x,y]=toScr((C.x1[i]+C.x2[i])/2,C.y2[i]);ctx.fillStyle=["#e2e8f0","#facc15","#ef4444"][C.pv[i]];ctx.fillRect(x-2,y-2,4,4)}
+  ctx.textBaseline="bottom"}
+let frameOfBox=null;
+
+const PM=30,PS=10; // pitch mode: 30 px margin, 10 canvas px per metre (105 x 68 m -> 1050 x 680)
+function pitchXY(xm,ym){return [PM+xm*PS,PM+ym*PS]}
+function drawPitch(){ // standard 105 x 68 markings in metres, corner origin, y from the far touchline (top)
+  const W=bd.width,H=bd.height;bctx.fillStyle="#0d3b25";bctx.fillRect(0,0,W,H);
+  for(let k=0;k<10;k++){if(k%2){bctx.fillStyle="#0f432a";const [x]=pitchXY(k*10.5,0);bctx.fillRect(x,PM,10.5*PS,68*PS)}}
+  bctx.strokeStyle="#ffffffb0";bctx.lineWidth=2;const r=(x,y,w,h)=>{const [a,b]=pitchXY(x,y);bctx.strokeRect(a,b,w*PS,h*PS)};
+  r(0,0,105,68);const [hx]=pitchXY(52.5,0);bctx.beginPath();bctx.moveTo(hx,PM);bctx.lineTo(hx,PM+68*PS);bctx.stroke();
+  let [cx,cy]=pitchXY(52.5,34);bctx.beginPath();bctx.arc(cx,cy,9.15*PS,0,7);bctx.stroke();bctx.beginPath();bctx.arc(cx,cy,3,0,7);bctx.fillStyle="#fff";bctx.fill();
+  r(0,34-20.16,16.5,40.32);r(105-16.5,34-20.16,16.5,40.32);r(0,34-9.16,5.5,18.32);r(105-5.5,34-9.16,5.5,18.32);
+  for(const x of [11,94]){const [a,b]=pitchXY(x,34);bctx.beginPath();bctx.arc(a,b,3,0,7);bctx.fill()}
+  bctx.fillStyle="#9fb3c8";bctx.font="14px system-ui";bctx.fillText("far touchline (y = 0 m)",PM+4,PM-8);bctx.fillText("near touchline (y = 68 m) · camera side",PM+4,PM+68*PS+20);
+}
+function drawBoard(f){
+  const W=bd.width,H=bd.height,pitch=S.boardMode==="pitch"&&hasPitch();
+  bctx.setTransform(1,0,0,1,0,0);bctx.clearRect(0,0,W,H);
+  let mp;
+  if(pitch){drawPitch();mp=i=>C.pv[i]===2?null:pitchXY(C.pxm[i],C.pym[i])}
+  else{const b=S.ov.board,[ylo,yhi]=b.y_range_px,X=S.ov.image.width_px;
+    bctx.fillStyle="#0b2a1c";bctx.fillRect(0,0,W,H);
+    bctx.strokeStyle="#ffffff30";bctx.lineWidth=2;bctx.setLineDash([10,6]);const m=18;bctx.strokeRect(m,m,W-2*m,H-2*m);
+    bctx.beginPath();bctx.moveTo(W/2,m);bctx.lineTo(W/2,H-m);bctx.stroke();bctx.beginPath();bctx.arc(W/2,H/2,H*0.13,0,7);bctx.stroke();
+    bctx.strokeRect(m,H*0.25,W*0.13,H*0.5);bctx.strokeRect(W-m-W*0.13,H*0.25,W*0.13,H*0.5);bctx.setLineDash([]);
+    mp=i=>[m+Math.max(0,Math.min(1,(C.x1[i]+C.x2[i])/2/X))*(W-2*m),m+Math.max(0,Math.min(1,(C.y2[i]-ylo)/(yhi-ylo)))*(H-2*m)]}
+  S.bhit=[];if(S.sel!=null&&$("oTrail").checked)trail(f,mp,bctx,3);
+  bctx.textAlign="center";bctx.textBaseline="middle";let hidden=0,near=0;
+  for(const i of boxesOf(f)){
+    const p=mp(i);if(!p){hidden++;continue}
+    const st=statusName(C.st[i]),est=C.est[i]===1,sel=C.local[i]===S.sel,edge=pitch&&C.pv[i]===1;near+=edge;
+    const [x,y]=p;S.bhit.push([i,x,y]);
+    const tc=edge?null:chipColour(i),r=pitch?(sel?18:14):(sel?13:10);
+    bctx.beginPath();bctx.arc(x,y,r,0,7);
+    if(est){bctx.setLineDash([3,3]);bctx.strokeStyle="#cbd5e1";bctx.lineWidth=2;bctx.stroke();bctx.setLineDash([])}
+    else{bctx.fillStyle=tc||"#475569";bctx.globalAlpha=edge?0.35:tc?0.95:0.7;bctx.fill();bctx.globalAlpha=1;bctx.lineWidth=sel?4:3;bctx.strokeStyle=edge?"#94a3b8":COL[st]||"#fff";bctx.setLineDash(edge?[2,3]:DASH[st]||[]);bctx.stroke();bctx.setLineDash([])}
+    bctx.fillStyle=(tc&&!est&&tc!=="#f8fafc"&&tc!=="#facc15")?"#fff":"#e5e7eb";if(tc==="#f8fafc"||tc==="#facc15")bctx.fillStyle="#111827";
+    const txt=label(i).replace("L","").replace("G","g");bctx.font="600 "+(pitch?(txt.length>3?13:16):(txt.length>3?10:12))+"px system-ui";bctx.fillText(txt,x,y+1)}
+  bctx.fillStyle="#fcd34dcc";bctx.font="600 15px system-ui";
+  if(pitch){bctx.textAlign="right";bctx.fillText("APPROXIMATE PITCH PROJECTION · not for speed or distance",W-PM,PM-8);bctx.textAlign="left"}
+  else bctx.fillText("APPROXIMATE · NON-METRIC · image-space",24,H-6);
+  S.boardStats={pitch,drawn:S.bhit.length,hidden,near};
+  $("boardInfo").textContent=`${S.idMode==="local"?"local tracker IDs":"global hypotheses (g7? = not confirmed)"}`+
+    (pitch?` · ${S.bhit.length} drawn · ${near} near the pitch edge (grey, 1–5 m outside) · ${hidden} more than 5 m outside the pitch not drawn (bench / staff area)`:"");
+}
+function setBoard(m){S.boardMode=m;$("bmPitch").classList.toggle("on",m==="pitch");$("bmImage").classList.toggle("on",m==="image");
+  const p=m==="pitch";$("noteImage").style.display=p?"none":"block";$("notePitch").style.display=p?"block":"none";
+  $("boardTitle").textContent=p?"2D tactical board — APPROXIMATE PITCH PROJECTION (metres, one-match calibration)":"2D tactical board — APPROXIMATE · NON-METRIC (image-space layout)";
+  $("bSpace").textContent=p?"APPROXIMATE PITCH PROJECTION · NOT FOR SPEED/DISTANCE":"PIXEL SPACE · NON-METRIC";if(S.ov)reRender()}
+
+function drawTimeline(){
+  const dpr=window.devicePixelRatio||1,w=tl.clientWidth,h=tl.clientHeight;if(tl.width!==Math.round(w*dpr)){tl.width=Math.round(w*dpr);tl.height=Math.round(h*dpr)}
+  tctx.setTransform(dpr,0,0,dpr,0,0);tctx.clearRect(0,0,w,h);const se=S.ov.series,n=S.nFrames,B=Math.min(w,300),bw=w/B;
+  for(let b=0;b<B;b++){const a=Math.floor(b*n/B),z=Math.floor((b+1)*n/B);let c=0,p=0,u=0,m=0,d=0;
+    for(let f=a;f<z;f++){c+=se.confirmed[f];p+=se.provisional[f];u+=se.unknown[f];m+=se.ambiguous[f];d+=se.det[f]}
+    const tot=c+p+u+m||1;let y=h;for(const [v,col] of [[c,"#22c55e"],[p,"#f59e0b"],[u+m,"#94a3b8"]]){const hh=v/tot*(h-14);tctx.fillStyle=col;tctx.fillRect(b*bw,y-hh,bw+0.6,hh);y-=hh}
+    tctx.fillStyle="#fff";tctx.fillRect(b*bw,(1-(d/(z-a))/30)*(h-14)-0,bw,1.5)}
+  const x=S.frame/(n-1)*w;tctx.fillStyle="#38bdf8";tctx.fillRect(x-1,0,2,h);
+  tctx.fillStyle="#9fb3c8";tctx.font="10px system-ui";tctx.fillText("0:00",3,10);const e=fmt(n-1);tctx.fillText(e,w-tctx.measureText(e).width-3,10);
+}
+
+function renderStats(f){
+  const all=[];for(let i=off[f];i<off[f+1];i++)if(!C.est[i])all.push(i);
+  const cnt=[0,0,0,0],locals=new Set();for(const i of all){cnt[C.st[i]]++;locals.add(C.local[i])}
+  let est=0;for(let i=off[f];i<off[f+1];i++)if(C.est[i]&&$("oEst").checked)est++;
+  $("cDet").textContent=all.length;$("cAct").textContent=locals.size;$("cEst").textContent=est;
+  $("cC").textContent=cnt[0];$("cP").textContent=cnt[1];$("cU").textContent=cnt[2];$("cA").textContent=cnt[3];
+  $("cTr").textContent=all.length?Math.round(100*cnt[0]/all.length)+"%":"–";
+  $("frInfo").textContent=`frame ${f}/${S.nFrames-1}`;
+  const rc=[0,0,0,0];if(C.role)for(const i of all)rc[C.role[i]]++;
+  for(let k=0;k<4;k++)$("cR"+k).textContent=C.role?rc[k]:"–";
+  S.stats={det:all.length,act:locals.size,c:cnt[0],p:cnt[1],u:cnt[2],a:cnt[3],roles:rc};
+}
+function renderSelected(f){
+  const el=$("sel");$("idtlWrap").style.display=S.sel==null?"none":"block";
+  if(S.sel==null){el.className="mut";el.textContent="Click a box in the video or a marker on the board.";return}
+  drawIdTimeline(f);
+  const tr=S.ov.tracks[String(S.sel)],j=lastBoxOf(S.sel,f);if(!tr||j<0){el.textContent="Local track "+S.sel+" has no sample at or before this frame.";return}
+  const present=frameOfBox[j]===f,st=statusName(C.st[j]),seg=C.seg[j]>=0?S.ov.segments[C.seg[j]]:null,f2=v=>v==null?"–":v.toFixed(3);
+  const tm=C.team[j]>=0?`${S.ov.teams[C.team[j]]} (conf ${f2(C.tconf[j])}${(C.tconf[j]??0)<S.ov.team_reliable?" — below display threshold":""})`:"no team evidence";
+  const gTxt=st==="confirmed"&&C.as[j]===0?`G${C.gid[j]} (confirmed, no unvalidated link)`:st==="unknown"||st==="ambiguous"?`G${C.gid[j]} — NOT trusted (${st})`:`G${C.gid[j]} — hypothesis only (${st}${C.as[j]===1?", via unvalidated link":""})`;
+  el.className="";el.innerHTML=`<div class="kv">
+   <b>local tracker ID</b><span>${S.sel}</span><b>global ID hypothesis</b><span>${gTxt}</span><b>tracklet ID</b><span>${C.trk[j]}</span>
+   <b>identity status</b><span style="color:${COL[st]}">${st}</span><b>local confidence</b><span>${f2(C.conf_local[j])}</span><b>link confidence</b><span>${C.link[j]==null?"– (no learned link)":f2(C.link[j])}</span>
+   <b>association</b><span>${S.ov.assoc[C.as[j]]}</span><b>team</b><span>${tm}</span>
+   <b>position</b><span>${present?(C.est[j]?"ESTIMATED (display only)":"observed"):"not detected this frame (last seen "+frameOfBox[j]+")"} · image_px foot (${((C.x1[j]+C.x2[j])/2).toFixed(0)}, ${C.y2[j].toFixed(0)})</span>
+   ${C.pxm?`<b>pitch (approx.)</b><span>x ${C.pxm[j].toFixed(1)} m, y ${C.pym[j].toFixed(1)} m · ${["on pitch","near the edge","outside the pitch"][C.pv[j]]} · nearest calibration keypoint ${C.kpd[j].toFixed(1)} m away (held-out keypoint error median 0.45 m, p90 1.07 m; larger far from keypoints)</span><b>role</b><span style="color:${ROLECOL[C.role[j]]}">${ROLENAME[C.role[j]]} <span class="mut">(detector class ${C.cls[j]})</span></span>`:""}
+   <b>track span</b><span>${fmt(tr.first)} – ${fmt(tr.last)} · ${tr.n} samples · ${tr.interruptions} interruptions</span>
+   <b>chain</b><span>${tr.tracklets.length} tracklet(s), ${tr.gids.length} global id(s) on this tracker id</span>
+   <b>safe segment</b><span>${seg?`${seg.id} · f${seg.f0}–${seg.f1} (${seg.n}) · ${seg.use}${seg.why.length?" ("+seg.why.join(", ")+")":""}`:"–"}</span></div>
+   <div class="note" style="margin-top:4px">No speed/distance shown: calibration fails the distance/speed gate and identities are hypotheses.</div>`;
+}
+function drawIdTimeline(f){ // whole-match continuity of the selected tracker id: status per observed frame, gaps, safe-segment boundaries, attributable segments
+  const cv=$("idtl"),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;if(!w)return;
+  if(cv.width!==Math.round(w*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}
+  const c=cv.getContext("2d");c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
+  const a=byLocal.get(S.sel);if(!a)return;const n=S.nFrames,X=fr=>fr/(n-1)*w,bw=Math.max(1,w/n);
+  let prevSeg=null;
+  for(const i of a){if(C.est[i])continue;const fr=frameOfBox[i];c.fillStyle=COL[statusName(C.st[i])];c.fillRect(X(fr),6,bw+0.3,h-22);
+    if(C.seg[i]!==prevSeg){c.fillStyle="#e2e8f0";c.beginPath();c.moveTo(X(fr),h-16);c.lineTo(X(fr)-3,h-10);c.lineTo(X(fr)+3,h-10);c.fill();prevSeg=C.seg[i]}}
+  const segs=new Set();for(const i of a)if(C.seg[i]>=0)segs.add(C.seg[i]);
+  for(const s of segs){const g=S.ov.segments[s];if(g.use==="attributable"){c.fillStyle="#22c55e";c.fillRect(X(g.f0),h-6,Math.max(2,X(g.f1)-X(g.f0)),4)}}
+  c.fillStyle="#38bdf8";c.fillRect(X(f)-1,0,2,h)}
+
+/* ---------- team analytics: visible players only, approximate metres; observed samples on the pitch, active roles, team confidence >= threshold ---------- */
+function computeAnalytics(f0,f1){
+  const NX=6,NY=4,T=[0,1].map(()=>({grid:Array.from({length:NY},()=>new Array(NX).fill(0)),n:0,frames:0,framesLow:0,vis:0,cx:0,cy:0,len:0,wid:0}));
+  const st=[0,0,0,0];let obs=0,attr=0;
+  for(let f=f0;f<=f1;f++){const pts=[[],[]];
+    for(let i=off[f];i<off[f+1];i++){if(C.est[i])continue;obs++;st[C.st[i]]++;if(C.seg[i]>=0&&S.ov.segments[C.seg[i]].use==="attributable")attr++;
+      const t=C.team[i];if(C.pv[i]!==0||(C.role[i]!==0&&C.role[i]!==1)||t<0||t>1||(C.tconf[i]??0)<S.ov.team_reliable)continue;
+      const x=Math.max(0,Math.min(105,C.pxm[i])),y=Math.max(0,Math.min(68,C.pym[i]));pts[t].push([x,y]);
+      T[t].grid[Math.min(NY-1,Math.floor(y/68*NY))][Math.min(NX-1,Math.floor(x/105*NX))]++;T[t].n++}
+    for(let t=0;t<2;t++){const p=pts[t];if(p.length<2){T[t].framesLow++;continue}
+      let sx=0,sy=0,mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9;for(const [x,y] of p){sx+=x;sy+=y;mnx=Math.min(mnx,x);mxx=Math.max(mxx,x);mny=Math.min(mny,y);mxy=Math.max(mxy,y)}
+      const A=T[t];A.frames++;A.vis+=p.length;A.cx+=sx/p.length;A.cy+=sy/p.length;A.len+=mxx-mnx;A.wid+=mxy-mny}}
+  return {f0,f1,T,st,obs,attr}}
+function drawHeat(cv,A,col){
+  const c=cv.getContext("2d"),W=cv.width,H=cv.height,m=10,s=(W-2*m)/105;c.clearRect(0,0,W,H);c.fillStyle="#0d3b25";c.fillRect(0,0,W,H);
+  const NY=A.grid.length,NX=A.grid[0].length,zw=105/NX*s,zh=68/NY*s;let mx=1;for(const r of A.grid)for(const v of r)mx=Math.max(mx,v);
+  c.font="600 12px system-ui";c.textAlign="center";c.textBaseline="middle";
+  A.grid.forEach((r,iy)=>r.forEach((v,ix)=>{c.fillStyle=col;c.globalAlpha=0.08+0.8*v/mx;c.fillRect(m+ix*zw,m+iy*zh,zw,zh);c.globalAlpha=1;
+    c.fillStyle="#fff";c.fillText(A.n?(100*v/A.n).toFixed(0)+"%":"–",m+ix*zw+zw/2,m+iy*zh+zh/2)}));
+  c.strokeStyle="#ffffffa0";c.lineWidth=1.5;c.strokeRect(m,m,105*s,68*s);c.beginPath();c.moveTo(m+52.5*s,m);c.lineTo(m+52.5*s,m+68*s);c.stroke();
+  c.beginPath();c.arc(m+52.5*s,m+34*s,9.15*s,0,7);c.stroke();c.strokeRect(m,m+(34-20.16)*s,16.5*s,40.32*s);c.strokeRect(m+(105-16.5)*s,m+(34-20.16)*s,16.5*s,40.32*s);c.textAlign="left"}
+function renderAnalytics(f){
+  if(!hasPitch()){$("anaPanel").style.display="none";return}
+  const win=$("anaWin").value,f1=win==="all"?S.nFrames-1:f,f0=win==="all"?0:Math.max(0,f-+win+1),key=win+":"+(win==="all"?0:Math.floor(f/25));
+  if(S.anaKey!==key){S.ana=computeAnalytics(f0,f1);S.anaKey=key}else return;
+  const A=S.ana,d=v=>v.toFixed(1);drawHeat($("hm0"),A.T[0],TEAMCOL.team_0);drawHeat($("hm1"),A.T[1],"#e2e8f0");
+  const nf=A.f1-A.f0+1,row=t=>{const a=A.T[t];return a.frames?`centroid (${d(a.cx/a.frames)}, ${d(a.cy/a.frames)}) m · length ${d(a.len/a.frames)} m · width ${d(a.wid/a.frames)} m · ${d(a.vis/a.frames)} visible on average · ${a.frames}/${nf} frames with ≥ 2 visible`:"fewer than 2 visible players in every frame"};
+  const p=v=>A.obs?(100*v/A.obs).toFixed(1)+"%":"–";
+  $("anaTable").innerHTML=[["window",`${fmt(A.f0)} – ${fmt(A.f1)} (${nf} frames)`],["team_0 shape",row(0)],["team_1 shape",row(1)],
+    ["identity in window",`${p(A.st[0])} confirmed · ${p(A.st[1])} provisional · ${p(A.st[2]+A.st[3])} unknown/ambiguous · ${p(A.attr)} in attributable segments`],
+    ["inputs","observed boxes only (no interpolation) · on-pitch · player and goalkeeper candidates (goalkeepers included) · team confidence ≥ 0.7 · visible subset, not the full team"]]
+    .map(r=>`<b>${r[0]}</b><span>${r[1]}</span>`).join("");
+  S.anaShown=A}
+function readiness(){
+  const cal=S.ov.calibration,h=cal?cal.held_out:null,tag=(c,t)=>`<span class="rb ${c}">${t}</span>`;
+  const rows=cal?[
+    tag("ex","Pitch projection: APPROXIMATE")+` held-out keypoint error median ${h.loo.median_m} m / p90 ${h.loo.p90_m} m (interior n=${h.loo_interior.n}: ${h.loo_interior.median_m} / ${h.loo_interior.p90_m} m)`,
+    tag("ok","Team shape, zone occupancy: available")+" on visible players, approximate",
+    tag("no","Speed / distance / high-speed running / sprint detection: UNAVAILABLE")+` calibration p90 ${h.loo.p90_m} m exceeds the 1.0 m gate; only ${(100*S.ov.summary.attributable_samples/S.ov.summary.boxes_observed).toFixed(1)}% of boxes are in attributable identity segments. Formulas exist and are tested on synthetic trajectories only.`,
+    tag("no","Pitch control: DISABLED")+" needs player velocities (unavailable), all players visible and a calibration that passes the distance/speed gate",
+    tag("no","Fatigue / workload: NOT IMPLEMENTED")+" no physiological or wearable data; no fatigue score is produced",
+    tag("no","Ball, possession, xG: NOT AVAILABLE")+" no ball detection in the saved outputs"]:[tag("no","No pitch calibration for this match")];
+  $("ready").innerHTML=rows.map(r=>`<div style="margin:3px 0">${r}</div>`).join("")}
+
+function render(f,meta){
+  S.frame=f;S.rendered=f;$("clock").textContent=`frame ${f} · ${fmt(f)}`;
+  $("clockInfo").textContent=S.haveVideo?"":"(stand-in clock, no video)";
+  drawVideoOverlay(f);drawBoard(f);renderStats(f);renderSelected(f);drawTimeline();renderAnalytics(f);
+  S.lastMeta=meta?{mediaTime:meta.mediaTime,presented:meta.presentedFrames}:S.lastMeta;
+}
+function reRender(){render(S.frame)}
+function standinTick(){if(!S.haveVideo&&S.playing){render(frameFromTime(mediaTime()));}requestAnimationFrame(standinTick)}
+
+/* ---------- interaction ---------- */
+function togglePlay(){S.playing=!S.playing;$("play").textContent=S.playing?"⏸ Pause":"▶ Play";
+  if(S.haveVideo){S.playing?vid.play():vid.pause()}else{S.clockRef=mediaTime();S.clockT=performance.now()}}
+$("play").onclick=()=>{if(S.haveVideo&&vid.ended)seekFrame(0);togglePlay()};
+for(const [id,d] of [["b1",-1],["f1",1],["b25",-25],["f25",25]])$(id).onclick=()=>{if(S.playing)togglePlay();seekFrame(S.frame+d)};
+$("speed").onchange=()=>{vid.playbackRate=parseFloat($("speed").value)};
+for(const b of document.querySelectorAll("[data-zoom]"))b.onclick=()=>{S.zoom=+b.dataset.zoom;for(const x of document.querySelectorAll("[data-zoom]"))x.classList.toggle("on",x===b);reRender()};
+$("follow").onchange=()=>{S.follow=$("follow").checked;reRender()};
+$("idLocal").onclick=()=>setId("local");$("idGlobal").onclick=()=>setId("global");
+function setId(m){S.idMode=m;$("idLocal").classList.toggle("on",m==="local");$("idGlobal").classList.toggle("on",m==="global");reRender()}
+for(const id of ["oBoxes","oLabels","oTeam","oConf","oEst","oTrail","oCal","colourBy"])$(id).onchange=reRender;
+$("anaWin").onchange=()=>{S.anaKey=null;reRender()};
+$("bmPitch").onclick=()=>setBoard("pitch");$("bmImage").onclick=()=>setBoard("image");
+function setRole(r){S.role=r;for(const b of document.querySelectorAll("[data-role]"))b.classList.toggle("on",b.dataset.role===r);reRender()}
+for(const b of document.querySelectorAll("[data-role]"))b.onclick=()=>setRole(b.dataset.role);
+$("roleLegend").innerHTML=ROLENAME.map((n,k)=>`<span><i class="dot" style="background:${ROLECOL[k]}"></i>${n}</span>`).join("");
+$("idtl").onclick=e=>{const r=$("idtl").getBoundingClientRect();if(S.playing)togglePlay();seekFrame((e.clientX-r.left)/r.width*(S.nFrames-1))};
+$("clearSel").onclick=()=>{S.sel=null;reRender()};
+function seekFromTimeline(e){const r=tl.getBoundingClientRect();seekFrame((e.clientX-r.left)/r.width*(S.nFrames-1))}
+let dragTl=false;tl.onmousedown=e=>{dragTl=true;seekFromTimeline(e)};window.addEventListener("mousemove",e=>{if(dragTl)seekFromTimeline(e)});window.addEventListener("mouseup",()=>dragTl=false);
+let drag=null;ov.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,vx:S.vx,vy:S.vy||0,moved:false}};
+window.addEventListener("mousemove",e=>{if(drag&&S.zoom>1){const d=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(d)>3||Math.abs(dy)>3){drag.moved=true;S.follow=false;$("follow").checked=false;S.vx=drag.vx-d;S.vy=drag.vy-dy;reRender()}}});
+window.addEventListener("mouseup",()=>{setTimeout(()=>drag=null,0)});
+ov.onclick=e=>{if(drag&&drag.moved)return;const r=ov.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let best=null,ba=1e12;
+  for(const [i,x1,y1,x2,y2] of S.hit||[])if(x>=x1&&x<=x2&&y>=y1&&y<=y2){const a=(x2-x1)*(y2-y1);if(a<ba){ba=a;best=i}}
+  S.sel=best==null?null:C.local[best];reRender()};
+bd.onclick=e=>{const r=bd.getBoundingClientRect(),k=bd.width/r.width,x=(e.clientX-r.left)*k,y=(e.clientY-r.top)*k;let best=null,bd2=22*22;
+  for(const [i,bx,by] of S.bhit||[]){const d=(bx-x)**2+(by-y)**2;if(d<bd2){bd2=d;best=i}}S.sel=best==null?null:C.local[best];reRender()};
+window.addEventListener("keydown",e=>{if(e.target.tagName==="SELECT")return;if(e.code==="Space"){e.preventDefault();togglePlay()}
+  else if(e.code==="ArrowRight"){seekFrame(S.frame+(e.shiftKey?25:1))}else if(e.code==="ArrowLeft"){seekFrame(S.frame-(e.shiftKey?25:1))}});
+window.addEventListener("resize",()=>{if(S.ov)reRender()});
+
+function insights(){
+  const s=S.ov.summary,sb=s.status_boxes,tot=s.boxes_observed,p=v=>(100*v/tot).toFixed(1)+"%";
+  const rows=[["frames",`${s.frames} (${fmt(s.frames)}) @ ${S.ov.fps} fps`],["mean detections / frame",s.mean_detections_per_frame],["local tracker IDs",s.local_tracks],
+   ["boxes confirmed",`${sb.confirmed} (${p(sb.confirmed)})`],["boxes provisional",`${sb.provisional} (${p(sb.provisional)})`],["boxes unknown / ambiguous",`${sb.unknown} / ${sb.ambiguous} (${p(sb.unknown+sb.ambiguous)})`],
+   ["safe segments (M7-0)",`${s.segments}; ${s.attributable_segments} attributable (${(100*s.attributable_samples/tot).toFixed(1)}% of boxes)`],
+   ["blocked / bridged transitions",`${s.transitions_blocked} / ${s.transitions_bridged}`],["display-interpolated boxes",`${s.boxes_estimated_display_only} (visual aid only)`]];
+  $("insights").innerHTML=rows.map(r=>`<b>${r[0]}</b><span>${r[1]}</span>`).join("");
+  const c=$("hist").getContext("2d"),W=520,H=90,B=S.ov.conf_bins;c.clearRect(0,0,W,H);let mx=1;
+  for(const s2 of S.ov.statuses)for(const v of S.ov.conf_hist[s2])mx=Math.max(mx,v);
+  S.ov.statuses.slice(0,3).forEach((s2,k)=>{c.fillStyle=COL[s2];c.globalAlpha=.8;S.ov.conf_hist[s2].forEach((v,b)=>{const h=v/mx*(H-14);c.fillRect(b*(W/B)+k*(W/B/3),H-h-2,W/B/3-1,h)})});c.globalAlpha=1;
+  c.fillStyle="#9fb3c8";c.font="10px system-ui";c.fillText("0",2,10);c.fillText("1",W-8,10);
+  $("lim").innerHTML=S.ov.limitations.map(x=>`<li>${x}</li>`).join("");
+}
+
+/* ---------- start-up ---------- */
+async function start(){
+  let ov0;try{const r=await fetch("/api/overlay");if(!r.ok)throw new Error(r.status);ov0=await r.json()}catch(e){$("bMatch").textContent="overlay data missing";$("bMatch").className="badge bad";return}
+  S.ov=ov0;C=ov0.cols;off=ov0.frame_offsets;S.nFrames=ov0.n_frames;$("gapN").textContent=ov0.interp_max_gap;
+  frameOfBox=new Int32Array(C.local.length);byLocal=new Map();
+  for(let f=0;f<S.nFrames;f++)for(let i=off[f];i<off[f+1];i++){frameOfBox[i]=f;let a=byLocal.get(C.local[i]);if(!a){a=[];byLocal.set(C.local[i],a)}a.push(i)}
+  $("bMatch").textContent=`SoccerTrack v2 · match ${ov0.match_id} · ${ov0.fps} fps · ${S.nFrames} frames`;
+  insights();readiness();
+  if(hasPitch()){const h=ov0.calibration.held_out;
+    $("notePitch").textContent=`APPROXIMATE PITCH PROJECTION — foot points (box bottom-centre) mapped with a hybrid fisheye + thin-plate-spline calibration fitted to the 65 supplied keypoints of this match. Held-out keypoint error: leave-one-out median ${h.loo.median_m} m / p90 ${h.loo.p90_m} m; interior keypoints (n=${h.loo_interior.n}) ${h.loo_interior.median_m} / ${h.loo_interior.p90_m} m. Valid for display, team shape and coarse zones; NOT for speed or distance. Players are never spread or moved: overlapping markers overlap. Markers 1–5 m outside are grey; > 5 m outside (bench/staff) are not drawn. Origin: pitch corner, x along the touchlines, y from the far touchline.`;
+    setBoard("pitch")}else{$("bmPitch").disabled=true;setBoard("image")}
+  if(!C.role){$("roleBtns").style.display="none"}
+  const health=await (await fetch("/api/health")).json();
+  if(health.video){
+    await new Promise(res=>{vid.addEventListener("loadedmetadata",res,{once:true});vid.addEventListener("error",res,{once:true});vid.src=ov0.video.url});
+    S.haveVideo=!vid.error&&vid.videoWidth>0;
+    if(!S.haveVideo)$("novideoMsg").textContent="The browser could not decode the video: "+(vid.error?vid.error.message:"unknown error");
+  }else $("novideoMsg").textContent="File not found on this machine.";
+  $("bVideo").textContent=S.haveVideo?`video ${vid.videoWidth}×${vid.videoHeight}`:"no video";$("bVideo").className="badge "+(S.haveVideo?"":"bad");
+  $("novideo").style.display=S.haveVideo?"none":"flex";
+  if(S.haveVideo){await calibrateStart();vid.requestVideoFrameCallback(onPresented);seekFrame(0)}else{requestAnimationFrame(standinTick);seekFrame(0)}
+  window.__demo={S,seekFrame,render,boxesOf,label,setId,togglePlay,vid,C,off,setBoard,setRole,computeAnalytics};
+  if(location.search.includes("selftest"))import_selftest();
+}
+start();
+/* ---------- built-in self test (?selftest=1): drives the real UI, reports to /api/selftest ---------- */
+async function import_selftest(){
+  const R={checks:[],video:S.haveVideo,t0:new Date().toISOString()};const wait=ms=>new Promise(r=>setTimeout(r,ms));
+  const settle=async(f)=>{const t=performance.now();while(performance.now()-t<8000){if(!S.seeking&&S.rendered===f)return true;await wait(30)}return false};
+  const chk=(name,ok,detail)=>R.checks.push({name,ok:!!ok,detail});
+  try{
+    for(const f of [0,1000,3000,2999,10,5975,1500,1499,1500]){
+      seekFrame(f);const ok=await settle(f);await wait(80);
+      const j=S.haveVideo?frameFromTime(vid.currentTime):f,ids=boxesOf(f),n=ids.filter(i=>!C.est[i]).length;
+      chk(`seek ${f}`,ok&&S.rendered===f&&j===f&&$("cDet").textContent==String(n),{requested:f,video_frame:j,rendered:S.rendered,det_card:$("cDet").textContent,det_data:n,board_frame:S.rendered});
+    }
+    // overlay/video alignment: sample the video at a frame and compare a drawn box's foot point with the data
+    seekFrame(2000);await settle(2000);await wait(100);
+    const f=2000,i=off[f];chk("boxes drawn for frame 2000",S.hit.length>0,{hits:S.hit.length,first_local:C.local[i]});
+    // time base: the start offset used for every frame lookup must equal the first presented frame's PTS
+    chk("start offset equals measured first-frame PTS",S.haveVideo&&S.startMeasured!=null&&Math.abs(S.ov.video.start_time_s-S.startMeasured)<0.002,{used:S.ov.video.start_time_s,measured:S.startMeasured,stored_in_overlay:S.startStored});
+    // ID toggle
+    setId("local");await wait(30);const l=label(off[f]);setId("global");await wait(30);const g=label(off[f]);
+    chk("local/global toggle",l.startsWith("L")&&(g.startsWith("G")||g==="?"),{local:l,global:g});
+    // untrusted global ids are never shown as confirmed
+    let bad=0,tested=0;for(let q=off[3000];q<off[3001];q++){tested++;const lab=label(q);const st=statusName(C.st[q]);if(lab.startsWith("G")&&!lab.endsWith("?")&&!(st==="confirmed"&&C.as[q]===0))bad++;if((st==="unknown"||st==="ambiguous")&&lab!=="?")bad++}
+    chk("untrusted global ids not shown as confirmed",bad===0&&tested>0,{tested,bad});
+    // selection
+    S.sel=C.local[off[3000]];seekFrame(3000);await settle(3000);chk("selected card populated",$("sel").innerText.includes("global ID hypothesis"),{sel:S.sel});
+    // playback: 3 s at 1x, count presented frames against expected
+    if(S.haveVideo){seekFrame(1000);await settle(1000);vid.playbackRate=1;const q0=vid.getVideoPlaybackQuality(),f0=S.rendered;togglePlay();await wait(3000);const fe=S.rendered;togglePlay();await wait(200);
+      const q1=vid.getVideoPlaybackQuality();chk("playback advances ~75 frames in 3 s at 1x",fe-f0>=55&&fe-f0<=90,{advanced:fe-f0,dropped:q1.droppedVideoFrames-q0.droppedVideoFrames,decoded:q1.totalVideoFrames-q0.totalVideoFrames});
+      chk("overlay frame equals video frame while playing",S.rendered===frameFromTime(vid.currentTime)||Math.abs(S.rendered-frameFromTime(vid.currentTime))<=1,{rendered:S.rendered,video:frameFromTime(vid.currentTime)})}
+    // estimated toggle: strict observed-only is the default
+    chk("display interpolation is off by default",!$("oEst").checked,{});
+    let e0=0;for(let q=off[2000];q<off[2001];q++)if(C.est[q])e0++;
+    let estAll=0;for(let q=0;q<C.est.length;q++)estAll+=C.est[q];chk("estimated boxes exist only as flagged extras",estAll>0&&boxesOf(2000).every(i=>!C.est[i]),{estimated_total:estAll});
+    if(hasPitch()){
+      // pitch board: every visible box is either drawn at its stored metres or (> 5 m outside) deliberately not drawn; nothing is moved
+      setBoard("pitch");seekFrame(2500);await settle(2500);await wait(60);
+      const ids=boxesOf(2500),bs=S.boardStats;let moved=0;for(const [i,x,y] of S.bhit){const [ex,ey]=pitchXY(C.pxm[i],C.pym[i]);if(Math.abs(ex-x)>1e-6||Math.abs(ey-y)>1e-6)moved++}
+      chk("pitch board draws stored positions only",bs.pitch&&bs.drawn+bs.hidden===ids.length&&moved===0&&ids.filter(i=>C.pv[i]===2).length===bs.hidden,{drawn:bs.drawn,hidden:bs.hidden,near:bs.near,moved});
+      // role filters: each filter shows only its role; All shows every observed box (no cap)
+      const full=boxesOf(2500).length;let ok=true,det={};for(const r of ["1","2","3","active"]){setRole(r);const b=boxesOf(2500);det[r]=b.length;ok=ok&&b.every(i=>r==="active"?C.role[i]<=1:C.role[i]===+r)}
+      setRole("all");chk("role filters",ok&&boxesOf(2500).length===full&&det["1"]+det["2"]+det["3"]+det["active"]-det["1"]===full,{all:full,...det});
+      const A=computeAnalytics(0,S.nFrames-1);chk("team analytics computed from observed on-pitch samples",A.T[0].n>0&&A.T[1].n>0&&A.obs===S.ov.summary.boxes_observed,{t0:A.T[0].n,t1:A.T[1].n,obs:A.obs})}
+  }catch(e){chk("selftest exception",false,String(e))}
+  R.ok=R.checks.every(c=>c.ok);R.done=true;window.__selftest=R;
+  try{await fetch("/api/selftest",{method:"POST",body:JSON.stringify(R)})}catch(e){}
+}
+</script>
+</body>
+</html>
