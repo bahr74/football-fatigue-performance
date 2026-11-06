@@ -6,11 +6,13 @@ import math
 import time
 from typing import TYPE_CHECKING, Any, Callable, Generator, Sequence
 from football_fatigue.vision.calibration import HomographyCalibrator
+from football_fatigue.vision.detection_cache import detections_from_observations
 from football_fatigue.vision.detector import YOLOPlayerDetector
 from football_fatigue.vision.models import (
     BoundingBox,
     DetectedClass,
     Detection,
+    RawObservation,
     TeamSide,
     TrackedBall,
     TrackedPlayer,
@@ -70,14 +72,26 @@ class VisionTrackingPipeline:
         fps: float = 25.0,
         pitch_mask_polygon: Sequence[tuple[float, float]] | None = None,
         kit_classifier: KitColorClassifier | None = None,
+        observation_sink: Callable[[int, float, Sequence[RawObservation]], None] | None = None,
+        tracking_confidence: float | None = None,
     ) -> None:
         self.kit_classifier = kit_classifier or KitColorClassifier()
         self.calibrator = calibrator
         self.pitch_mask_polygon = pitch_mask_polygon
+        # Optional recorder of every raw detector observation (see detection_cache); when set the
+        # detector's tracker input is derived from those same observations.
+        self.observation_sink = observation_sink
+        # With a sink the detector may run below the tracking threshold (a lower cache floor); only
+        # observations with confidence > tracking_confidence reach the tracker. Unused without a sink.
+        self.tracking_confidence = tracking_confidence
         # Cumulative wall-clock seconds per stage, for profiling.
         self.timings: dict[str, float] = {"decode": 0.0, "convert": 0.0, "detect": 0.0, "track": 0.0}
         self.detector = detector or YOLOPlayerDetector()
         self.tracker = tracker or MultiObjectTracker()
+        # Ball observations are never tracked here: the latest frame's ball detections stay available
+        # for a separate ball module, and the highest-confidence one is exposed as ``VisionFrame.ball``.
+        self.last_ball_detections: list[Detection] = []
+        self.ball_detections_seen = 0
         self.team_classifier = team_classifier or TeamColorClassifier()
         self.fps = float(fps)
         if not math.isfinite(self.fps) or self.fps <= 0:
@@ -120,106 +134,119 @@ class VisionTrackingPipeline:
             if frame_rgb is None:
                 raise ValueError("Either frame_rgb or detections must be provided.")
             _t = time.perf_counter()
-            detections = self.detector.detect(frame_rgb, pitch_mask_polygon=self.pitch_mask_polygon)
+            if self.observation_sink is None:
+                detections = self.detector.detect(frame_rgb, pitch_mask_polygon=self.pitch_mask_polygon)
+            else:
+                observations = self.detector.observe(frame_rgb, pitch_mask_polygon=self.pitch_mask_polygon)
+                self.observation_sink(frame_num, timestamp_s, observations)
+                detections = detections_from_observations(observations, self.tracking_confidence)
             self.timings["detect"] += time.perf_counter() - _t
 
-        # 2. Update multi-object tracks
+        # 2. Ball observations never enter the person tracker
+        ball_detections = [d for d in detections if d.class_name == DetectedClass.BALL]
+        person_detections = [d for d in detections if d.class_name != DetectedClass.BALL]
+        self.last_ball_detections = ball_detections
+        self.ball_detections_seen += len(ball_detections)
+
+        # 3. Update person tracks
         _t = time.perf_counter()
-        tracks = self.tracker.update(detections, frame_num)
+        tracks = self.tracker.update(person_detections, frame_num)
         self.timings["track"] += time.perf_counter() - _t
 
-        # 3. Separate ball and players
+        # 4. Players, plus the best ball detection of this frame (an observation, not a track)
         tracked_players: list[TrackedPlayer] = []
         tracked_ball: TrackedBall | None = None
 
+        for det in ball_detections:
+            # A planar homography cannot recover airborne ball height. Keep
+            # the lower box edge's ground-plane projection as an estimate,
+            # but do not expose it as a usable pitch position without an
+            # independent grounded-ball annotation.
+            center = det.bbox.bottom_center
+            pitch_coords = (
+                self.calibrator.pixel_to_pitch(center[0], center[1])
+                if self.calibrator is not None else None
+            )
+            px, py = pitch_coords if pitch_coords is not None else (None, None)
+            candidate = TrackedBall(
+                pixel_x=center[0],
+                pixel_y=center[1],
+                pitch_x=px,
+                pitch_y=py,
+                confidence=det.confidence,
+                is_estimated=True,
+                is_usable=False,
+            )
+            if tracked_ball is None or candidate.confidence > tracked_ball.confidence:
+                tracked_ball = candidate
+
         for trk in tracks:
-            if trk.class_name == DetectedClass.BALL:
-                # A planar homography cannot recover airborne ball height. Keep
-                # the lower box edge's ground-plane projection as an estimate,
-                # but do not expose it as a usable pitch position without an
-                # independent grounded-ball annotation.
-                center = trk.bbox.bottom_center
-                pitch_coords = (
-                    self.calibrator.pixel_to_pitch(center[0], center[1])
-                    if self.calibrator is not None else None
-                )
-                px, py = pitch_coords if pitch_coords is not None else (None, None)
-                candidate = TrackedBall(
-                    pixel_x=center[0],
-                    pixel_y=center[1],
-                    pitch_x=px,
-                    pitch_y=py,
-                    confidence=trk.confidence,
-                    is_estimated=True,
-                    is_usable=False,
-                )
-                if tracked_ball is None or candidate.confidence > tracked_ball.confidence:
-                    tracked_ball = candidate
-            else:
-                # Player ground contact point is bottom-center of bounding box
-                foot_pt = trk.bbox.bottom_center
-                pitch_coords = (
-                    self.calibrator.pixel_to_pitch(foot_pt[0], foot_pt[1])
-                    if self.calibrator is not None else None
-                )
-                px, py = pitch_coords if pitch_coords is not None else (None, None)
-                is_on_pitch = (
-                    self.calibrator is not None and px is not None and py is not None
-                    and self.calibrator.is_within_pitch(px, py, margin_m=3.0)
-                )
+            # Player ground contact point is bottom-center of bounding box
+            foot_pt = trk.bbox.bottom_center
+            pitch_coords = (
+                self.calibrator.pixel_to_pitch(foot_pt[0], foot_pt[1])
+                if self.calibrator is not None else None
+            )
+            px, py = pitch_coords if pitch_coords is not None else (None, None)
+            is_on_pitch = (
+                self.calibrator is not None and px is not None and py is not None
+                and self.calibrator.is_within_pitch(px, py, margin_m=3.0)
+            )
 
-                # Team classification via jersey color
-                jersey_color = (
-                    self.team_classifier.extract_jersey_color_hsv(frame_rgb, trk.bbox)
-                    if frame_rgb is not None
-                    else None
-                )
-                team_side = (
-                    TeamSide.REFEREE if trk.class_name == DetectedClass.REFEREE
-                    else self.team_classifier.classify_player(jersey_color, track_id=trk.track_id)
-                )
+            # Team classification via jersey color
+            jersey_color = (
+                self.team_classifier.extract_jersey_color_hsv(frame_rgb, trk.bbox)
+                if frame_rgb is not None
+                else None
+            )
+            team_side = (
+                TeamSide.REFEREE if trk.class_name == DetectedClass.REFEREE
+                else self.team_classifier.classify_player(jersey_color, track_id=trk.track_id)
+            )
 
-                # Velocity calculation
-                speed_m_s: float | None = None
-                valid_position = px is not None and py is not None and is_on_pitch
-                accept_for_speed = valid_position
-                if valid_position and trk.track_id in self._prev_player_positions:
-                    prev_x, prev_y, prev_t = self._prev_player_positions[trk.track_id]
-                    dt = timestamp_s - prev_t
-                    if dt > 0.0:
-                        dx = px - prev_x
-                        dy = py - prev_y
-                        inst_speed = math.sqrt(dx * dx + dy * dy) / dt
-                        if inst_speed <= 12.0:  # screening threshold, not a validated measurement
-                            speed_m_s = inst_speed
-                        else:
-                            accept_for_speed = False
+            # Velocity calculation
+            speed_m_s: float | None = None
+            valid_position = px is not None and py is not None and is_on_pitch
+            accept_for_speed = valid_position
+            if valid_position and trk.track_id in self._prev_player_positions:
+                prev_x, prev_y, prev_t = self._prev_player_positions[trk.track_id]
+                dt = timestamp_s - prev_t
+                if dt > 0.0:
+                    dx = px - prev_x
+                    dy = py - prev_y
+                    inst_speed = math.sqrt(dx * dx + dy * dy) / dt
+                    if inst_speed <= 12.0:  # screening threshold, not a validated measurement
+                        speed_m_s = inst_speed
+                    else:
+                        accept_for_speed = False
 
-                if accept_for_speed:
-                    self._prev_player_positions[trk.track_id] = (px, py, timestamp_s)
+            if accept_for_speed:
+                self._prev_player_positions[trk.track_id] = (px, py, timestamp_s)
 
-                kit_color, kit_conf = (
-                    self.kit_classifier.observe(trk.track_id, frame_rgb, trk.bbox)
-                    if frame_rgb is not None else ("unknown", 0.0)
-                )
-                tracked_players.append(TrackedPlayer(
-                    track_id=trk.track_id,
-                    team_side=team_side,
-                    detected_class=trk.class_name,
-                    jersey_number=None,
-                    bbox=trk.bbox,
-                    confidence=trk.confidence,
-                    pixel_x=foot_pt[0],
-                    pixel_y=foot_pt[1],
-                    pitch_x=px,
-                    pitch_y=py,
-                    speed_m_s=speed_m_s,
-                    is_estimated=True,
-                    is_usable=is_on_pitch,
-                    kit_color=kit_color,
-                    kit_confidence=kit_conf,
-                    kit_vote=self.kit_classifier.last_vote if frame_rgb is not None else None,
-                ))
+            kit_color, kit_conf = (
+                self.kit_classifier.observe(trk.track_id, frame_rgb, trk.bbox)
+                if frame_rgb is not None else ("unknown", 0.0)
+            )
+            tracked_players.append(TrackedPlayer(
+                track_id=trk.track_id,
+                team_side=team_side,
+                detected_class=trk.class_name,
+                jersey_number=None,
+                bbox=trk.bbox,
+                confidence=trk.confidence,
+                pixel_x=foot_pt[0],
+                pixel_y=foot_pt[1],
+                pitch_x=px,
+                pitch_y=py,
+                speed_m_s=speed_m_s,
+                is_estimated=True,
+                is_usable=is_on_pitch,
+                kit_color=kit_color,
+                kit_confidence=kit_conf,
+                kit_vote=self.kit_classifier.last_vote if frame_rgb is not None else None,
+                observed_class=trk.observed_class,
+                role_confidence=trk.role_confidence,
+            ))
 
         vision_frame = VisionFrame(
             frame_num=frame_num,
@@ -239,8 +266,13 @@ class VisionTrackingPipeline:
         max_seconds: float | None = None,
         start_frame: int = 0,
         callback: Callable[[int, int], None] | None = None,
+        detection_source: Callable[[int], Sequence[Detection]] | None = None,
     ) -> Generator[VisionFrame, None, None]:
-        """Stream and process frames from a video file using OpenCV."""
+        """Stream and process frames from a video file using OpenCV.
+
+        ``detection_source(frame_index)`` replaces the detector with stored detections (replay);
+        frames are still decoded because the kit classifier reads their pixels.
+        """
         import cv2
 
         if max_frames is not None and max_frames < 0:
@@ -279,7 +311,10 @@ class VisionTrackingPipeline:
                 _t = time.perf_counter()
                 frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                 self.timings["convert"] += time.perf_counter() - _t
-                vf = self.process_frame(frame_rgb, frame_num=frame_idx, timestamp_s=frame_idx / self.fps)
+                vf = self.process_frame(
+                    frame_rgb, frame_num=frame_idx, timestamp_s=frame_idx / self.fps,
+                    detections=detection_source(frame_idx) if detection_source is not None else None,
+                )
                 yield vf
 
                 frame_idx += 1

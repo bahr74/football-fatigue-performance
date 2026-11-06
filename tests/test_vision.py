@@ -215,11 +215,9 @@ class TestMultiObjectTracker:
             Detection(DetectedClass.BALL, 0.9, BoundingBox(40, 1, 45, 6)),
         ]
         tracks = tracker.update(detections, frame_idx=0)
-        assert [track.class_name for track in tracks] == [
-            DetectedClass.GOALKEEPER,
-            DetectedClass.REFEREE,
-            DetectedClass.BALL,
-        ]
+        # the person tracker keeps person roles apart and never tracks the ball
+        assert [track.class_name for track in tracks] == [DetectedClass.GOALKEEPER, DetectedClass.REFEREE]
+        assert tracker.ignored_non_person_detections == 1
 
 
 class TestTeamColorClassifier:

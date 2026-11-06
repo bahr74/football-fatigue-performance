@@ -69,12 +69,46 @@ class Detection:
             raise ValueError("Detection confidence must be finite and within 0-1.")
 
 
+@dataclass(frozen=True)
+class RawObservation:
+    """One detector output before filtering and tracking (the unit a detection cache stores).
+
+    ``mapped_class`` is ``None`` when the model label is not a football class. The two
+    filter decisions are ``None`` when they were not evaluated (the ball and unmapped
+    labels are never filtered; the pitch mask is only evaluated when one is configured
+    and the turf filter passed). Boxes stay raw tuples so unmapped detections never need
+    to be valid boxes.
+    """
+    class_id: int
+    class_label: str
+    mapped_class: DetectedClass | None
+    confidence: float
+    xyxy: tuple[float, float, float, float]
+    passes_turf_filter: bool | None = None
+    inside_pitch_mask: bool | None = None
+
+    @property
+    def kept(self) -> bool:
+        """Whether the original pipeline would have passed this observation to the tracker."""
+        return (
+            self.mapped_class is not None
+            and self.passes_turf_filter is not False
+            and self.inside_pitch_mask is not False
+        )
+
+    def to_detection(self) -> Detection | None:
+        """The tracker-facing detection, or ``None`` when the observation was filtered out."""
+        if not self.kept:
+            return None
+        return Detection(self.mapped_class, self.confidence, BoundingBox(*self.xyxy))
+
+
 @dataclass
 class TrackedPlayer:
     """A tracked player with persistent ID, team attribution, and pitch coordinates."""
     track_id: int
     team_side: TeamSide
-    detected_class: DetectedClass = DetectedClass.PLAYER
+    detected_class: DetectedClass = DetectedClass.PLAYER   # the track's role estimate (see tracker.RoleEstimator)
     jersey_number: int | None = None
     bbox: BoundingBox | None = None
     confidence: float = 0.0
@@ -88,6 +122,8 @@ class TrackedPlayer:
     kit_color: str | None = None        # 'blue' | 'white' | 'other' | 'unknown'; a colour label, not home/away
     kit_confidence: float | None = None
     kit_vote: str | None = None          # raw single-frame colour vote (None = undecided)
+    observed_class: DetectedClass | None = None   # this frame's raw detector label; may differ from detected_class
+    role_confidence: float | None = None          # share of recent evidence behind detected_class (0-1); not a probability
 
 
 @dataclass
@@ -141,6 +177,8 @@ class VisionFrame:
                     "kit_color": p.kit_color,
                     "kit_confidence": round(p.kit_confidence, 3) if p.kit_confidence is not None else None,
                     "kit_vote": p.kit_vote,
+                    "observed_class": p.observed_class.value if p.observed_class is not None else None,
+                    "role_confidence": round(p.role_confidence, 3) if p.role_confidence is not None else None,
                     "identity_usable": p.jersey_number is not None,
                     "coord_source": "cv_tracking",
                 }

@@ -90,6 +90,95 @@ Choose a new run ID for every attempt. The run is a smoke sample and does not co
 
 Use a new `--run-id` for every run. Existing run directories are rejected. `--tracker iou` selects the simple IoU fallback; it is less robust to occlusion and should be described as such. If ByteTrack is requested but cannot initialize, the CLI stops rather than silently switching. CPU is the portable default; GPU performance depends on the installed PyTorch build and hardware.
 
+## Detector tiling options
+
+`--tile-width` alone keeps the historical behaviour: full-height strips, every strip of a frame in one model call, boxes merged by class-aware NMS at IoU 0.5. Three opt-in options extend it (each requires `--tile-width`, is recorded in the detector provenance of the cache and run manifests, and is fixed by a cache on replay):
+
+- `--tile-height H` makes a 2D grid of overlapping tiles (same overlap on both axes, tiles flush with the frame edges, row-major order). Per-tile letterboxing to `--imgsz` sets the effective scale: for example 1280x1280 tiles at `--imgsz 1920` upscale by 1.5.
+- `--tile-batch N` sends at most N tiles per model call to bound peak GPU memory. It does not change which tiles are processed; results can still differ at floating-point level on GPU because batch composition affects the convolution kernels.
+- `--tile-merge person_agnostic` (with `--tile-merge-cross-role-iou`, default 0.7) merges more conservatively than class-aware NMS: ball and unmapped labels are merged class-aware and never with people; person boxes of the same role are merged at IoU 0.5 as before; person boxes of *different* roles are merged only when they nearly coincide (IoU >= 0.7) and the more confident box keeps its own role; a box cut by an interior tile edge is dropped only when a box from another tile extends past that edge, contains at least 80% of it, and is not more than 0.2 less confident. Overlapping boxes below these limits stay as separate observations. Suppressed boxes are not stored per observation; counts per rule and role pair are written to `detector.merge_statistics` in the cache manifest and `summary.detector_merge_statistics` in the run manifest. A suppressed role label is therefore evidence that is counted but not kept.
+- `--tile-merge edge_aware` is `person_agnostic` with the tile-edge rule applied to all person boxes *before* the same-role NMS (and again on the survivors). With `person_agnostic` a truncated box that is more confident than the complete box from the neighbouring tile wins the NMS, so the complete box is gone before the edge rule sees it (observed on the 117092 benchmark at the y=626 cut of the 2D grid; a diagnosis from one clip, not a general claim). The edge rule itself is unchanged (same constants, recorded in the detector provenance); the extra counters are `suppressed_edge_truncated_before_nms` and `edge_truncated_role_differs` (the dropped truncated box carried a different role label than the box that completes it). Boxes without a qualifying completing box are kept. Ball and unmapped labels are untouched.
+
+None of this has been validated on video yet: the unit tests use a stub model, and whether the merge is correct on real footage needs the reference boxes or visual inspection.
+
+## Detection cache and replay
+
+Tracker, team and evaluation experiments should not each pay for detector inference. `--save-detections` additionally writes every raw detector observation to `<run>/detection_cache/`; `--replay-detections` tracks stored observations without loading the detector. Both are opt-in; without them the CLI behaves as before.
+
+```powershell
+# Save: same run as usual, plus the cache. Without --cache-confidence-floor the floor equals --confidence.
+.\.venv\Scripts\python.exe -m football_fatigue.vision data/raw/soccertrack_v2/mot/117092.mp4 --detection-only --weights models/vision/player_detector.pt --run-id RUN --imgsz 1920 --tile-width 1280 --confidence 0.4 --device cuda:0 --max-frames 625 --save-detections
+
+# Save with a lower floor: YOLO runs at 0.10 and everything above it is stored, but only confidence > 0.4 reaches the tracker.
+.\.venv\Scripts\python.exe -m football_fatigue.vision ... --confidence 0.4 --cache-confidence-floor 0.1 --save-detections
+
+# Replay (no --weights, no GPU needed; tracker settings may change freely).
+.\.venv\Scripts\python.exe -m football_fatigue.vision data/raw/soccertrack_v2/mot/117092.mp4 --detection-only --replay-detections data/processed/vision/RUN --run-id RUN-replay --confidence 0.4 --max-frames 625
+```
+
+- **Cache format:** `cache_manifest.json` (schema version, `complete` status, frame window, record count and SHA-256, video and weights hashes, detector configuration) plus `detections.jsonl` (one record per frame; per observation: class id and label, mapped class, confidence, box, and the turf-filter and pitch-mask decisions). Unmapped labels and filtered boxes are kept with their decisions, so a replay reproduces the filtering without the pixels.
+- **Integrity:** a replay is refused for an incomplete or altered cache, a different schema version, a different video (SHA-256, size, frame rate), different `--weights`, or a frame window outside the cached one. Detector flags (`--imgsz`, `--tile-width`, `--device`, `--half`, `--pitch-keypoints`, `--mask-margin`) come from the cache and cannot be overridden. A cache directory is never overwritten.
+- **Two thresholds:** the *cache floor* (`--cache-confidence-floor`, default `--confidence`) is the confidence YOLO runs with; every returned observation above it is stored, including filtered and unmapped ones. The *tracking-input threshold* (`--confidence`) decides which kept observations reach the tracker (`confidence > threshold`, strict, as in Ultralytics NMS). They are recorded separately in the cache manifest (`detector.confidence_floor`, `tracking_input.confidence_threshold`) and the run manifest. The floor must satisfy `0 < floor <= --confidence`, applies only with `--save-detections`, and is rejected with a replay. Tracker activation, association and filtering are unchanged. Caveat: a lower floor feeds more candidates into NMS and the detector's per-image limits, so stored observations above 0.4 are not guaranteed identical to a plain 0.4 run; this must be measured, not assumed.
+- **Replay modes:** `compatibility` (default) requires `--confidence` to equal the saving run's tracking-input threshold and reconstructs its tracker input. `experimental` allows any `--confidence` at or above the cache floor, for example a cache saved at floor 0.10 for a 0.40 run and replayed at 0.25; the manifest labels the run experimental. A confidence below the floor is rejected in both modes: those detections were never stored, and a cache cannot be created retroactively for an earlier run such as B2.
+- **Three kinds of result, not to be conflated:** (1) the original B2 run is a historical baseline with no cache; (2) a new cache run is a fresh detector run whose agreement with B2 has to be measured, not assumed; (3) experimental replays are different tracker inputs and are not comparable with either as if equivalent.
+- **What replay still needs:** the video is decoded again because the kit classifier reads frame pixels. Replay output is deterministic given the cache and the tracker settings; whether a new detector run reproduces an earlier run's detections exactly on GPU is a separate question that must be measured.
+
+## Standard MOT evaluation
+
+`football_fatigue.vision.mot_eval` computes HOTA (with DetA, AssA, LocA), CLEAR (MOTA, IDSW, Frag, MT/PT/ML) and Identity (IDF1/IDP/IDR) with TrackEval (dev dependency, `trackeval>=1.3,<2`), without re-implementing any metric. It works on saved `frames.jsonl` and a MOTChallenge reference file; it never runs a detector.
+
+```powershell
+.\.venv\Scripts\python.exe -m football_fatigue.vision.mot_eval data/processed/vision/RUN data/raw/soccertrack_v2/mot/117092.txt --start 0 --end 625 --view all_non_ball --output data/processed/vision_eval/NAME/RUN_all_non_ball.json
+```
+
+- **Conventions:** frames are 0-based decoded-frame indices (`--gt-frame-base 1` for a 1-based reference); the window is `[start, end)` and every frame in it is a timestep, including frames with no reference boxes or no prediction record. Views: `all_non_ball` or `player_goalkeeper`. HOTA is averaged over alpha 0.05-0.95; CLEAR and Identity use `--iou` (default 0.5). `--min-confidence` is a strict `>` filter.
+- **Input handling (counted in the report):** predictions without a box, non-finite or non-positive-size boxes are dropped; a repeated track id within a frame is an error. Reference rows with conf field 0 are MOTChallenge "ignore" rows and are dropped; `-1` is kept. The reference class column is not used.
+- **Reports:** versioned JSON (`schema_version`, TrackEval and adapter versions, SHA-256 of both inputs, full configuration), written to a path you choose and never overwritten. `--export-motchallenge DIR` also writes a TrackEval `MotChallenge2DBox` layout (frames renumbered from 1 inside the window); a test checks that TrackEval's own loader gives the same numbers as the in-memory path.
+- **Approximate vs standard:** `tracking_eval.py` is kept unchanged. The report repeats its numbers under `approximate_project_metrics` (`idf1_approximate`) so the two are never mixed up. They differ because that evaluator re-matches every frame by IoU alone, whereas TrackEval's CLEAR matching prefers keeping the previous identity (fewer ID switches) and its IDF1 uses a global identity assignment.
+- **Known TrackEval behaviour:** a timestep in which nothing at all is predicted does not reset the previous-match state, so a gap covering such frames is not counted as a fragmentation. HOTA's AssA counts missed frames against the identity.
+
+## Class-safe person tracking
+
+- **Ball isolation:** the person tracker only receives player, goalkeeper, referee and person detections. The pipeline removes ball detections before tracking (the tracker also drops and counts any that reach it). The ball is not tracked: each frame's `ball` is its highest-confidence detection, and `VisionTrackingPipeline.last_ball_detections` keeps all of that frame's ball detections for a future ball module. Because the ball no longer takes track ids, local track ids can differ from older runs even when every person is associated identically (the B2 clip: same tracks, ids shifted by the 3 ids the ball had used).
+- **Association** is class-agnostic across person roles (ByteTrack always was; the `--tracker iou` fallback used to require equal classes and no longer does), so a changing detector label never splits a track.
+- **Role estimate:** `detected_class` is the track's role, the class with the most decayed, confidence-weighted evidence (half-life 2 s of video, challenger needs 1.25x the current role's evidence). `observed_class` is this frame's raw label and `role_confidence` the role's share of the evidence (not a probability). A role is a label, never a verified identity; it can still be wrong, and nothing here uses kit colour, team, camera or dataset information. `--role-policy latest` reports the raw label as `detected_class` instead.
+- **Outputs:** `frames.jsonl` players gain `observed_class` and `role_confidence` (all earlier keys unchanged); `manifest.json` records `configuration.class_safety`, `summary.role_statistics` and `summary.ball_detections_not_tracked`. Detection caches are unchanged and replay unchanged.
+
+## Global player identity layer (opt-in, M6)
+
+`football_fatigue.vision.identity` is a post-tracking pass over an existing run. It never changes a run in place and is not used by `/cv`, the tactical board or any default.
+
+```powershell
+.\.venv\Scripts\python.exe -m football_fatigue.vision.identity data/processed/vision/RUN --output data/processed/vision/RUN-identity --video VIDEO.mp4 --config data/processed/vision_eval/m6-global-identity-v1/frozen_config.json [--online] [--interpolate-max-gap 12]
+```
+
+- **Team evidence** (`team_appearance.py`): per-video and per-window, with no fixed kit colours.
+  - A turf colour model is fitted in Lab from pixels around person boxes. Turf is removed from torso crops, and a 6-D colour descriptor describes each box.
+  - The two team clusters come from k-means over the run's own boxes (`kmeans2_box`).
+  - A box far from both clusters votes `other` (goalkeepers, referees). A box about equally close to both does not vote.
+  - Team labels are cluster names (`team_0`/`team_1`), not home/away.
+- **Tracklets and swap-aware splitting:**
+  - A local track is split only on two independent cues: a confident team-vote change point (30 decided votes on each side, ≥95% share) plus an interaction, tracker gap or motion jump near it.
+  - Single-cue candidates are rejected and logged.
+  - The interaction interval becomes an `ambiguous` tracklet.
+  - A split whose partner track shows the mirror-image change is repaired as a swap (crossed re-link). A split without a partner is restored.
+- **Global linking:**
+  - Tracklet ends are linked across gaps of ≤75 frames.
+  - The motion gate is constant-velocity, with a spread that grows with the gap; the p90 error was fitted on development windows.
+  - Team and role (goalkeeper) gates act only when both sides are confident. There is also a size gate.
+  - A link must be unique and must not overlap in time. The solver abstains if a competing link is nearly as cheap.
+  - Every link, rejection and abstention is written to `identity_graph.json`.
+- **Outputs:**
+  - Per player, `frames.jsonl` keeps every box. `track_id` is replaced by the global id, and the original is kept as `local_track_id`. New fields: `tracklet_id`, `global_id`, `identity_status` (`confirmed` / `provisional` / `ambiguous` / `unknown`), `identity_confidence` (logistic, calibrated on dev windows), `team_cluster`, `team_confidence` and `position_status` (`observed`).
+  - Optional interpolated boxes go in a separate `identity_interpolated` list and never into `players`.
+  - `manifest.json` holds the source hash, configuration, team-model diagnostics, status counts and timing.
+- **Online mode:** a 250-frame window is re-solved every 25 frames, and identities are emitted 50 frames after the fact. The output is therefore causal, with a fixed 2 s latency.
+- **Analytics:** `identity_trajectory_points` (policy `m6-identity-analytics-v1`) returns only observed boxes with usable pitch positions and the selected statuses. By default that means `confirmed`, more than 12 frames away from any ambiguous, unknown or tracklet-change frame of that identity. A coverage report comes with it. Each box has one global id, so the per-identity selections never double count.
+- **Evidence and limits:**
+  - See `data/processed/vision_eval/m6-global-identity-v1/README.md`: dev and held-out windows, ablations, full-length runs, calibration, runtime.
+  - Identity evidence only. This is not jersey-number identity and not re-identification across matches.
+  - It was validated on two fixed-camera SoccerTrack matches only, both blue-vs-white fixtures. It is not evidence of camera-agnostic generalisation.
+
 ## Outputs and interpretation
 
 Each output run contains:

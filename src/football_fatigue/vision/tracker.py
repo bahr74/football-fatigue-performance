@@ -1,11 +1,25 @@
-"""Multi-object tracker for football players and the ball."""
+"""Multi-object tracker for the people on the pitch (players, goalkeepers, referees).
+
+The tracker is person-only: ball detections are never associated here (a ball is a different kind
+of object with its own motion; see ``VisionTrackingPipeline`` for how ball observations are kept
+separately). Association is class-agnostic across the person roles, so a detector label that
+flickers between player, goalkeeper and referee never breaks a track. Each track reports a
+*role estimate* built from decayed, confidence-weighted label evidence, plus the raw label of the
+current frame, so the role is never silently equal to "whatever was detected last".
+"""
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import dataclass
 from typing import Any, Sequence
 from football_fatigue.vision.models import BoundingBox, DetectedClass, Detection
+
+PERSON_CLASSES = frozenset({
+    DetectedClass.PERSON, DetectedClass.PLAYER, DetectedClass.GOALKEEPER, DetectedClass.REFEREE,
+})
+ROLE_POLICIES = ("stable", "latest")
 
 
 @dataclass
@@ -20,10 +34,71 @@ class ActiveTrack:
     lost_frames: int = 0
     vx: float = 0.0
     vy: float = 0.0
+    observed_class: DetectedClass | None = None  # raw label of the matched detection in this frame
+    role_confidence: float | None = None         # share of decayed evidence behind class_name
+
+
+class RoleEstimator:
+    """Per-track role estimate from decayed, confidence-weighted label votes.
+
+    Votes decay with a half-life in seconds (converted with the frame rate), so a few contrary
+    frames cannot flip a long-observed role, while sustained contrary evidence eventually does:
+    the challenger must also exceed the current role's evidence by ``switch_margin``. Nothing here
+    is a verified identity; ``confidence`` is only the current role's share of the evidence.
+    """
+
+    def __init__(self, frame_rate: float, half_life_s: float = 2.0, switch_margin: float = 1.25) -> None:
+        if not math.isfinite(float(half_life_s)) or half_life_s <= 0:
+            raise ValueError("half_life_s must be finite and greater than zero.")
+        if not math.isfinite(float(switch_margin)) or switch_margin < 1:
+            raise ValueError("switch_margin must be finite and at least 1.")
+        self.half_life_frames = float(half_life_s) * float(frame_rate)
+        self.switch_margin = float(switch_margin)
+        self._state: dict[int, dict[str, Any]] = {}
+        self.observations = 0
+        self.observed_label_changes = 0   # raw label differs from the track's previous raw label
+        self.role_changes = 0             # reported role changed
+        self.tracks_with_label_change: set[int] = set()
+        self.tracks_with_role_change: set[int] = set()
+
+    def observe(self, track_id: int, label: DetectedClass, confidence: float, frame_idx: int) -> tuple[DetectedClass, float]:
+        state = self._state.get(track_id)
+        if state is None:
+            state = self._state[track_id] = {"votes": {}, "role": label, "last_raw": label, "last_frame": frame_idx}
+        else:
+            decay = 0.5 ** (max(0, frame_idx - state["last_frame"]) / self.half_life_frames)
+            state["votes"] = {k: v * decay for k, v in state["votes"].items()}
+            if label != state["last_raw"]:
+                self.observed_label_changes += 1
+                self.tracks_with_label_change.add(track_id)
+        votes = state["votes"]
+        votes[label] = votes.get(label, 0.0) + max(float(confidence), 1e-6)
+        state["last_raw"], state["last_frame"] = label, frame_idx
+        # deterministic: ties resolve to the current role
+        best = max(votes, key=lambda k: (votes[k], k == state["role"]))
+        if best != state["role"] and votes[best] > self.switch_margin * votes.get(state["role"], 0.0):
+            state["role"] = best
+            self.role_changes += 1
+            self.tracks_with_role_change.add(track_id)
+        self.observations += 1
+        return state["role"], votes.get(state["role"], 0.0) / sum(votes.values())
+
+    def prune(self, frame_idx: int, max_age_frames: int) -> None:
+        for track_id in [t for t, s in self._state.items() if frame_idx - s["last_frame"] > max_age_frames]:
+            del self._state[track_id]
+
+    def stats(self) -> dict[str, Any]:
+        return {
+            "observations": self.observations,
+            "observed_label_changes": self.observed_label_changes,
+            "role_changes": self.role_changes,
+            "tracks_with_label_change": len(self.tracks_with_label_change),
+            "tracks_with_role_change": len(self.tracks_with_role_change),
+        }
 
 
 class MultiObjectTracker:
-    """Tracks players and ball across consecutive video frames using ByteTrack or IoU tracking."""
+    """Tracks the people on the pitch across consecutive video frames using ByteTrack or IoU tracking."""
 
     def __init__(
         self,
@@ -34,7 +109,12 @@ class MultiObjectTracker:
         track_activation_threshold: float = 0.5,
         track_buffer: int = 75,
         matching_threshold: float = 0.95,
+        role_policy: str = "stable",
+        role_half_life_s: float = 2.0,
+        role_switch_margin: float = 1.25,
     ) -> None:
+        if role_policy not in ROLE_POLICIES:
+            raise ValueError(f"role_policy must be one of {ROLE_POLICIES}.")
         if max_lost_frames < 0:
             raise ValueError("max_lost_frames must be non-negative.")
         if not math.isfinite(float(iou_threshold)) or not 0 <= iou_threshold <= 1:
@@ -52,6 +132,10 @@ class MultiObjectTracker:
         self.next_track_id = 1
         self.tracks: dict[int, ActiveTrack] = {}
         self._supervision_tracker: Any = None
+        self.role_policy = role_policy
+        self._role_half_life_s, self._role_switch_margin = role_half_life_s, role_switch_margin
+        self.roles = RoleEstimator(self.frame_rate, role_half_life_s, role_switch_margin)
+        self.ignored_non_person_detections = 0  # e.g. a ball handed to the person tracker by mistake
 
         if use_supervision:
             try:
@@ -85,12 +169,30 @@ class MultiObjectTracker:
             self._supervision_tracker = self._new_bytetrack(sv)
         else:
             self.frame_rate = float(frame_rate)
+        self.roles = RoleEstimator(self.frame_rate, self._role_half_life_s, self._role_switch_margin)
 
     def update(self, detections: Sequence[Detection], frame_idx: int) -> list[ActiveTrack]:
-        """Update tracks with new detections and return current active tracks."""
+        """Update tracks with person detections and return the current active tracks.
+
+        Non-person detections (the ball) are not tracked; they are counted and dropped.
+        """
+        people = [d for d in detections if d.class_name in PERSON_CLASSES]
+        self.ignored_non_person_detections += len(detections) - len(people)
         if self._supervision_tracker is not None:
-            return self._update_supervision(detections)
-        return self._update_builtin(detections)
+            tracks = self._update_supervision(people)
+        else:
+            tracks = [dataclasses.replace(t) for t in self._update_builtin(people)]
+        return self._apply_roles(tracks, frame_idx)
+
+    def _apply_roles(self, tracks: list[ActiveTrack], frame_idx: int) -> list[ActiveTrack]:
+        for track in tracks:
+            track.observed_class = track.class_name
+            role, share = self.roles.observe(track.track_id, track.class_name, track.confidence, frame_idx)
+            track.role_confidence = share
+            if self.role_policy == "stable":
+                track.class_name = role
+        self.roles.prune(frame_idx, max_age_frames=max(self.track_buffer, self.max_lost_frames) * 2)
+        return tracks
 
     def _update_supervision(self, detections: Sequence[Detection]) -> list[ActiveTrack]:
         """Update using Roboflow supervision ByteTrack."""
@@ -150,8 +252,7 @@ class MultiObjectTracker:
 
                 for d_idx in unmatched_detections:
                     det = detections[d_idx]
-                    if det.class_name != track.class_name:
-                        continue
+                    # association is class-agnostic across person roles
                     iou = self._compute_iou(track.bbox, det.bbox)
                     if iou > best_iou and iou >= self.iou_threshold:
                         best_iou = iou
@@ -167,6 +268,7 @@ class MultiObjectTracker:
 
                     track.bbox = det.bbox
                     track.confidence = det.confidence
+                    track.class_name = det.class_name  # latest raw label; the role estimate is applied on output
                     track.hits += 1
                     track.lost_frames = 0
                     matched_tracks.add(track_id)
