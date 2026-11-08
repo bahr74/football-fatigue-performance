@@ -20,6 +20,7 @@ vision = [
 ]
 tactical = ["accessible-space>=2.1,<3"]
 m1 = ["lightgbm==4.7.0", "optuna==5.0.0"]   # M1 possession C2-v2 / C3 (pinned to the installed versions)
+ml = ["numpy>=1.24,<3", "scikit-learn>=1.5,<2"]          # event detection ML refinement
 
 [tool.setuptools.packages.find]
 where = ["src"]

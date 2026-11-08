@@ -20,6 +20,7 @@ Repository: <https://github.com/bahr74/football-fatigue-performance>
 | Movement and spatial analytics | **Implemented** (movement indicators, observation-count heatmaps, sampled team shape and adjacent-window positional changes; no physiological fatigue labels) |
 | Tactical board analytics overlays and CSV export | **Implemented** (heatmap, current-frame team shape, downloadable derived report) |
 | Tactical metrics: PC, EPV, OBSO, DAS | **Definitions and data requirements documented; no scores published yet** ([Stage 5 guide](docs/stage_5_tactical_metrics.md)). The current CV demo lacks validated pitch coordinates, team identity and possession inputs. |
+| Event detection from positions: pass (with outcome), cross, shot, goal, key pass (`football_fatigue.event_detection`) | **Rules (`rules-0.2`) and ML (`ml-0.3`) detectors implemented** (Milestone 3A, pending review): raw positions only, PFF-like event export, scored against PFF labels on held-out matches; ML F1 pass 0.81, cross 0.67, shot 0.62, goal 0.62 ([event detection guide](docs/event_detection.md)). CV input not started |
 | Experimental CV video detection, tracking, pitch homography, JSONL outputs | **Implemented, unvalidated on real footage** ([CV guide](docs/vision_module.md)) |
 | Source dataset checksums/provenance manifest, preprocessing | Planned |
 | Validated video detection/tracking, 3D ball trajectories, out-of-frame estimation, wearables/physiology, fatigue prediction, injury-risk research, genetics | Future or research; no validated CV model or physiological prediction |
@@ -180,6 +181,6 @@ Directories such as `configs/`, `models/`, `reports/`, `notebooks/`, and `refere
 9. Spatial movement analytics: team shape, observation heatmaps, and positional changes.
 10. Tactical metric implementations only after PC, EPV, OBSO, and DAS definitions and validation criteria are approved; event recognition and VAEP/OBV remain later work.
 
-Stages 9–10 are an authorized extension in progress. Stage 9 is implemented as descriptive tracking analytics and board overlays. Stage 10 has not started because the project does not yet specify the acronym definitions, equations, required event labels, or validation data; no formulas or model outputs are fabricated.
+Event recognition was authorized separately as Milestone 3A (rules baseline; see [docs/event_detection.md](docs/event_detection.md)); VAEP/OBV remain later work. Stages 9–10 are an authorized extension in progress. Stage 9 is implemented as descriptive tracking analytics and board overlays. Stage 10 has not started because the project does not yet specify the acronym definitions, equations, required event labels, or validation data; no formulas or model outputs are fabricated.
 
 Each step requires explicit authorization before it starts. Later research modules (listed as Future above) will be designed only after the tracking and event foundation is validated.

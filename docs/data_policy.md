@@ -28,6 +28,8 @@ Location: `data/raw/` (ignored by Git). Observed on 2026-10-15 after a fresh dow
 
 **Integrity check (2026-10-15): passed, readability only.** A read-only pass fully decompressed all 64 tracking `.bz2` files (first and last lines parsed as JSON) and parsed as JSON all 192 event files and all 64 metadata and 64 roster files, with no errors. This confirms the files are not truncated or corrupt at the compression/JSON level. It does **not** validate schemas, completeness of records, coordinates, or timing. The 64 `.bz2` files in the earlier second tracking copy were byte-identical, so they are covered by the same result.
 
+**Current local layout (observed 2026-11-02, file names only):** the copy in use is `data/raw/FIFA World Cup 2022/` with `Tracking Data/`, `Event Data/` (plus `March 14, 2025/` and `May 1, 2025/`), `Metadata/`, `Rosters/`, and `competitions.csv` at its top level, next to the three downloaded `FIFA World Cup 2022-20261016T155251Z-1-00{1,2,3}.zip` archives. Playback and event detection use `data/raw/FIFA World Cup 2022` as the dataset root. The timestamped table above describes the earlier download.
+
 Preserve all original files and folder names, including timestamp suffixes, subfolders, and `.bz2` compression. Do not extract, rename, or edit in place; any decompression writes to derived storage.
 
 ## Match ID mapping
