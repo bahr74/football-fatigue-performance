@@ -271,3 +271,16 @@ player 81.5 %, team 90.9 %, H/A/D macro-F1 0.865, spell-F1 0.477, dead start / e
 CONTROL (20 % of error frames) or DEAD (18 %, mostly long ball-missing stretches), CONTROL predicted as TRAVELLING (16 %); LOOSE
 recall 37.9 %. Known caveat: inner-CV C2-v2 features for fold k use fold-k parameters (tuned on the same 24 matches as the inner
 folds), a mild optimistic bias in inner tuning only; outer scores are clean.
+
+**2026-11-08 – Housekeeping and C3 video check list (no training or tuning).** M1 code, tests, scripts and this plan
+committed on branch `m1-possession` (local only, not pushed); `pyproject.toml` gained the extra
+`m1 = ["lightgbm==4.7.0", "optuna==5.0.0"]`. Several M1 scripts still import `football_fatigue.event_detection.config`
+(uncommitted, Milestone 3A) and read its position cache `data/processed/event_detection/cache`. **Scratch space for long runs:**
+`m1_possession.config.use_scratch()` (one place; default `D:\m1_tmp`, override with env `M1_TMP`) sets TEMP / TMP / TMPDIR /
+JOBLIB_TEMP_FOLDER and Python's tempdir for the process and its workers; `optuna_storage(name)` gives an SQLite study file
+there. `bfp.py`, `c2v2.py`, `c3.py`, `compare.py`, `report_c3.py` call it at start. Deleted re-creatable caches
+`c3/feat/` (2.8 GB) and `c3/c2cache/` (2.5 GB), both rebuilt by `scripts/m1/c3.py features --config <cfg>`; Z: free 12 → 18 GB.
+Video check list `reports/m1_possession/c3_error_videos.md` (`scripts/m1/c3_error_videos.py`, the 2 longest single-type
+stretches of C3's 5 biggest error types, video time + film-room links). Pattern: most long stretches have the ball missing
+(80–100 %) with no PFF event inside; the two longest "TRAVELLING → DEAD" stretches (25–29 s) and the 67 s "CONTROL → DEAD"
+stretch (3843) look like answer-key holds across long ball-missing spells rather than model errors and need a video check.
