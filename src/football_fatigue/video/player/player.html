@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Review Player</title>
+<style>
+:root{--bg:#060d17;--panel:#0d1828;--line:#1f3550;--txt:#dbe7f5;--mut:#8aa0b8;--acc:#38bdf8;--bad:#f87171;--ok:#4ade80;--warn:#fbbf24}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.4 system-ui,Segoe UI,Arial,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:15px;margin:0 8px 0 0}
+select,input,button{background:#0a1422;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px 7px;font:inherit}
+button{cursor:pointer}button:hover{border-color:var(--acc)}button.on{background:#123049;border-color:var(--acc)}
+button:disabled{opacity:.45;cursor:default}
+.grp{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.lab{color:var(--mut);font-size:12px}
+.tag{font-size:11px;padding:1px 6px;border-radius:9px;background:#14304a;color:#bfe6ff}
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:10px;padding:10px}
+@media (max-width:1100px){main{grid-template-columns:minmax(0,1fr)}}
+#stageWrap{position:relative;background:#000;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+#cv{display:block;width:100%;cursor:crosshair}
+#vid{position:absolute;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#msg{position:absolute;left:0;right:0;top:40%;text-align:center;color:var(--bad);font-weight:600;display:none;padding:10px}
+#tip{position:absolute;pointer-events:none;background:#000c;border:1px solid var(--line);border-radius:6px;padding:4px 7px;font-size:12px;display:none;white-space:nowrap}
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+#status{font-variant-numeric:tabular-nums;color:var(--mut);font-size:12px}
+#status b{color:var(--txt)}
+#tl{width:100%;height:120px;display:block;background:#08111d;border:1px solid var(--line);border-radius:6px;cursor:pointer}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:10px}
+.panel h3{margin:0 0 6px;font-size:13px}
+#evlist{max-height:300px;overflow:auto}
+.ev{display:grid;grid-template-columns:auto 1fr auto;gap:6px;padding:3px 4px;border-radius:5px;cursor:pointer;align-items:center}
+.ev:hover{background:#13253a}.ev.sel{background:#173452}
+.dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+table{border-collapse:collapse;width:100%;font-size:12px}td,th{border-bottom:1px solid var(--line);padding:2px 4px;text-align:right}th:first-child,td:first-child{text-align:left}
+.legend div{display:flex;gap:8px;align-items:center;margin:2px 0}
+.sw{width:26px;height:12px;display:inline-block;border:2px solid}
+.note{color:var(--mut);font-size:11.5px}
+.warn{color:var(--warn)}.bad{color:var(--bad)}.ok{color:var(--ok)}
+kbd{border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:11px}
+.dbgOnly{display:none}body.dbg .dbgOnly{display:block}
+#failList{max-height:260px;overflow:auto}.fl{padding:3px 4px;border-radius:5px;cursor:pointer;display:grid;grid-template-columns:auto 1fr auto;gap:6px;align-items:center}
+.fl:hover{background:#13253a}.fl.sel{background:#173452}
+#stripImg{width:100%;border:1px solid var(--line);border-radius:6px;margin-top:6px;background:#000;min-height:40px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:1px 8px;font-size:12px}.kv b{color:var(--mut);font-weight:500}
+</style>
+</head>
+<body>
+<header>
+  <h1>⚽ Video Review Player</h1>
+  <div class="grp"><span class="lab">Video</span><select id="src"></select></div>
+  <div class="grp" id="tiGrp"><span class="lab">Tracker input</span><span id="tiBtns"></span></div>
+  <div class="grp"><span class="lab">Engine run</span><select id="run"></select></div>
+  <div class="grp"><button id="cmp" title="Same video frame twice: top = the selected tracking profile, bottom = the profile chosen here">A | B side by side</button><select id="cmpWith" title="tracking profile shown in the bottom pane"></select></div>
+  <button id="dbg" title="Player Detection &amp; Identity Debugger: why does a player disappear?">🔍 Debugger</button>
+  <span class="tag" id="badge"></span>
+</header>
+<main>
+<section>
+  <div class="bar">
+    <span class="lab">Layers</span>
+    <label><input type="checkbox" id="lDet" checked> Detector boxes</label>
+    <select id="detMode" title="which detector boxes"><option value="all">all cached (conf &gt; 0.1)</option><option value="input">tracker input only</option><option value="rejected">rejected only</option><option value="st_raw">stage: raw cache, every class (conf &gt; 0.1)</option><option value="st_T0L">stage: T0L input (person, conf &gt; 0.1)</option><option value="st_T0">stage: T0 input (person, conf &gt; 0.4)</option><option value="st_B0">stage: B0 input (person, conf &gt; 0.4, turf filter)</option></select>
+    <label><input type="checkbox" id="lTrk" checked> Tracker output (T##)</label>
+    <label><input type="checkbox" id="lEng" checked> Engine predicted</label>
+    <label><input type="checkbox" id="lGT"> Ground truth</label>
+    <label><input type="checkbox" id="lEv" checked> Event highlight</label>
+    <span class="lab">IDs</span><select id="ids"><option value="auto">auto</option><option value="all">all</option><option value="sel">selected only</option><option value="none">none</option></select>
+  </div>
+  <div id="stageWrap"><canvas id="cv" width="1600" height="422"></canvas><video id="vid" muted playsinline preload="auto"></video><div id="msg"></div><div id="tip"></div></div>
+  <div class="bar">
+    <button id="bM25" title="−25 frames (Shift+←)">⏮ −25</button><button id="bM1" title="−1 frame (←)">◀ −1</button>
+    <button id="bPlay" title="Play / pause (Space)" style="min-width:80px">▶ Play</button>
+    <button id="bP1" title="+1 frame (→)">+1 ▶</button><button id="bP25" title="+25 frames (Shift+→)">+25 ⏭</button>
+    <button id="bPrevEv">◀ prev event</button><button id="bNextEv">next event ▶</button>
+    <input id="fIn" type="number" min="0" style="width:90px" title="go to frame (Enter)">
+    <select id="speed" title="playback rate"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option></select>
+    <label title="loop the selected event (or the whole video)"><input type="checkbox" id="loop"> loop</label>
+    <span class="lab">View</span>
+    <select id="view"><option value="full">Full frame</option><option value="event">Follow selected event</option><option value="track">Follow selected track</option><option value="manual">Manual zoom (wheel / drag)</option><option value="gt">Follow selected GT player</option></select>
+    <button id="bExport" title="Record the canvas (what you see) while playing the selected event or the next 10 s; downloads a WebM file">⏺ Export clip</button>
+  </div>
+  <div id="status"></div>
+  <canvas id="tl" width="1600" height="120"></canvas>
+  <div class="note" id="tlNote">Timeline: click a bar to select an event; click elsewhere to seek. Keys: <kbd>Space</kbd> play/pause, <kbd>←</kbd>/<kbd>→</kbd> ±1 frame, <kbd>Shift</kbd>+arrow ±25, <kbd>N</kbd>/<kbd>P</kbd> next/prev event.</div>
+</section>
+<aside>
+  <div class="panel dbgOnly" id="dbgPanel"><h3>🔍 Player Detection &amp; Identity Debugger</h3>
+    <div class="note">Three kinds of ID: <b>G##</b> = SoccerTrack ground-truth player (annotation) · <b>T##</b> = temporary ByteTrack ID of the selected profile (<i>not</i> a player identity) · detector boxes have no ID, only a confidence. GT boxes are coloured by what happened to that player in the selected profile:</div>
+    <div id="codeLegend" class="note"></div>
+    <h3 style="margin-top:8px">Pipeline at this frame</h3><div id="funnel" class="note">–</div></div>
+  <div class="panel dbgOnly"><h3>Failure inspector <span class="lab" id="failCount"></span></h3>
+    <div class="bar" style="margin:2px 0 6px"><select id="failGrp"><option value="">every failure</option><option value="E">E · no box after merge (detector/merge)</option><option value="B">B · detected, rejected before ByteTrack</option><option value="C">C · detected + passed, no track output</option><option value="D">D · temporary ID changed</option></select>
+      <input id="failMin" type="number" min="1" value="5" style="width:56px" title="minimum missing frames"><input id="failGid" type="number" min="0" placeholder="G id" style="width:64px" title="only this GT player"></div>
+    <div id="failList"></div></div>
+  <div class="panel dbgOnly"><h3>Selected failure</h3><div id="failInfo" class="note">Pick a failure in the list or the timeline, or click a GT box (G##) in the video.</div>
+    <div class="bar" id="failBtns" style="display:none"><button id="fBefore">◀ before</button><button id="fDuring">during</button><button id="fAfter">after ▶</button><button id="fPlay" title="loop from 1 s before to 1 s after, following the GT player">⟳ play through</button></div>
+    <img id="stripImg" alt="" style="display:none"></div>
+  <div class="panel dbgOnly"><h3>Detector comparison (benchmark frames)</h3>
+    <div class="bar" style="margin:2px 0"><select id="benchRun"><option value="">(production cache only)</option></select></div>
+    <div id="benchInfo" class="note">Choose a completed benchmark run. Its boxes are drawn (violet, dashed) only on frames where it and the production run were both computed; in A | B mode they replace the production boxes in the bottom pane.</div>
+    <div id="benchFrames" class="bar"></div></div>
+  <div class="panel dbgOnly"><h3>Failure gallery (gallery-v2)</h3><div id="galList" class="note">–</div></div>
+  <div class="panel legend"><h3>What the boxes are</h3>
+    <div><span class="sw" style="border-color:#4ade80"></span>detector box passed to the tracker (measured)</div>
+    <div><span class="sw" style="border-color:#f472b6"></span>detector box removed by the turf filter (measured)</div>
+    <div><span class="sw" style="border-color:#fb923c;border-style:dotted"></span>detector box below conf 0.4 (measured, not used)</div>
+    <div><span class="sw" style="border-color:#a3e635"></span>detector box, video without tracker (Wadi Degla windows)</div>
+    <div><span class="sw" style="border-color:#22d3ee;border-width:3px"></span>tracker output T## (a measured detection + temporary ID)</div>
+    <div><span class="sw" style="border-color:#ef4444;border-style:dashed"></span>engine PREDICTED position (nothing detected)</div>
+    <div><span class="sw" style="border-color:#f5f5f5;border-style:dotted;border-width:1px"></span>ground truth (SoccerTrack annotation)</div>
+    <div class="note">T## are temporary ByteTrack IDs, not player identities. ByteTrack's internal predictions for lost tracks are not exported, so every T## box is a detection. Raw per-tile boxes (before the tile merge) were never stored.</div>
+  </div>
+  <div class="panel"><h3>Selection</h3><div id="selInfo" class="note">Click an event in the timeline or list, or a box in the video.</div></div>
+  <div class="panel"><h3>Events <span class="lab" id="evCount"></span></h3>
+    <div class="bar" style="margin:2px 0 6px"><select id="evCat"><option value="">all categories</option></select><select id="evGt"><option value="">any GT outcome</option></select></div>
+    <div id="evlist"></div></div>
+  <div class="panel"><h3>B0 vs T0 (saved results)</h3><div id="cmpTbl" class="note">–</div></div>
+  <div class="panel"><h3>Provenance</h3><div id="prov" class="note">–</div></div>
+</aside>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const vid=$("vid"),cv=$("cv"),ctx=cv.getContext("2d"),tl=$("tl"),tctx=tl.getContext("2d");
+const Q=new URLSearchParams(location.search);
+const CAT_COL={box_overlap:"#E6B422",probable_occlusion:"#F06A1D",detector_miss:"#D63A3A",tracker_gap:"#8B5CF6",uncertain:"#8C939D",window:"#38bdf8"};
+const CAT_LAB={box_overlap:"Box overlap",probable_occlusion:"Probable occlusion",detector_miss:"Detector miss",tracker_gap:"Tracker gap",uncertain:"Uncertain",window:"Detector window"};
+const S={sources:[],src:null,meta:null,ti:"B0",run:"",runs:{},events:[],evById:{},sel:null,selTrack:null,frame:0,target:null,
+  start:0,startStored:0,playing:false,seeking:false,chunks:{},pending:{},compare:false,cmpWith:"T0",view:"full",manual:{cx:0,cy:0,z:1},
+  rect:null,trackRect:null,eventRect:null,dbg:false,diag:null,diagFor:"",selGt:null,fail:null,gtRect:null,bench:null,benchRun:"",tlHits:[],stats:{presented:0,t0:0,fps:0,lastPF:null},drawMs:0,hits:[],rendered:-1,err:null,recording:null,ready:false};
+const CH=250;
+const CODES=["ok","id_changed","untracked","rej_conf","rej_turf","rej_class","miss","not_evaluable"];
+const CODE_COL={ok:"#4ade80",id_changed:"#facc15",untracked:"#a78bfa",rej_conf:"#fb923c",rej_turf:"#f472b6",rej_class:"#94a3b8",miss:"#ef4444",not_evaluable:"#64748b"};
+const CODE_LAB={ok:"tracked",id_changed:"tracked, ID changed",untracked:"detected+passed, no track",rej_conf:"below conf threshold",rej_turf:"turf-filtered",rej_class:"non-person class",miss:"no box after merge",not_evaluable:"not evaluable"};
+const DG_COL={dg_E:"#ef4444",dg_B:"#f472b6",dg_C:"#a78bfa",dg_D:"#facc15",dg_re:"#4ade80",dg_exit:"#64748b"};
+const DG_LAB={dg_E:"GT: no box (E)",dg_B:"GT: rejected (B)",dg_C:"GT: untracked (C)",dg_D:"GT: ID change (D)",dg_re:"GT: reappears",dg_exit:"GT: leaves view"};
+const GRP_ROW={E:"dg_E",B:"dg_B",C:"dg_C"};
+
+async function api(p){const r=await fetch(p);const j=await r.json().catch(()=>({error:"bad JSON from "+p}));if(!r.ok||j.error)throw new Error(j.error||("HTTP "+r.status));return j}
+function showMsg(t){$("msg").textContent=t||"";$("msg").style.display=t?"block":"none"}
+function fps(){return S.meta?S.meta.fps:25}
+function nFrames(){return S.meta?S.meta.frames:1}
+function clampF(f){return Math.max(0,Math.min(nFrames()-1,Math.round(f)))}
+function frameFromTime(t){return clampF((t-S.start)*fps())}
+function clock(f){const s=f/fps(),m=Math.floor(s/60);return `${m}:${(s-m*60).toFixed(2).padStart(5,"0")}`}
+
+/* ------------------------------------------------------------------ data */
+function chunkKey(ti,run,c){return `${S.src}|${ti}|${run||""}|${c}`}
+function runFor(ti){if(!S.srcInfo||!S.srcInfo.runs.length)return "";if(S.run&&S.runs[S.run]&&S.runs[S.run].tracker_input===ti)return S.run;
+  const r=S.srcInfo.runs.find(r=>r.tracker_input===ti&&r.profile==="v2"&&r.full);return r?r.run_id:""}
+function frameData(f,ti){ti=ti||S.ti;const run=S.srcInfo&&S.srcInfo.kind==="soccertrack"?(S.compare?runFor(ti):S.run):"";
+  const c=Math.floor(f/CH),k=chunkKey(ti,run,c);const ch=S.chunks[k];if(ch)return ch.frames[f]||null;loadChunk(ti,run,c);return undefined}
+function loadChunk(ti,run,c){const k=chunkKey(ti,run,c);if(S.chunks[k]||S.pending[k]||c<0||c*CH>=nFrames())return;
+  S.pending[k]=true;const isDev=S.srcInfo.kind==="soccertrack";
+  const url=`/api/frames?source=${encodeURIComponent(S.src)}&start=${c*CH}&n=${CH}`+(isDev?`&tracker=${ti}`+(run?`&run=${encodeURIComponent(run)}`:""):"");
+  api(url).then(d=>{S.chunks[k]=d;delete S.pending[k];if(!S.playing)draw()}).catch(e=>{delete S.pending[k];S.err=e.message;status()})}
+function prefetch(f){const c=Math.floor(f/CH);for(const ti of (S.compare?[S.ti,S.cmpWith]:[S.ti])){const run=S.srcInfo.kind==="soccertrack"?(S.compare?runFor(ti):S.run):"";loadChunk(ti,run,c);loadChunk(ti,run,c+1)}}
+
+/* ------------------------------------------------------------------ geometry / views */
+function unionBoxes(bs){if(!bs.length)return null;let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;for(const b of bs){x1=Math.min(x1,b[0]);y1=Math.min(y1,b[1]);x2=Math.max(x2,b[2]);y2=Math.max(y2,b[3])}return [x1,y1,x2,y2]}
+function fitRect(b,aspect,pad,minH){const W=S.meta.width,H=S.meta.height;if(!b)return [0,0,W,H];
+  const bw=b[2]-b[0],bh=b[3]-b[1],ref=Math.max(bh,bw/aspect,1);let h=Math.max(minH,bh+2*pad*ref,(bw+2*pad*ref)/aspect),w=h*aspect;
+  if(w>W){w=W;h=w/aspect}if(h>H){h=H;w=Math.min(W,h*aspect)}const cx=(b[0]+b[2])/2,cy=(b[1]+b[3])/2;
+  return [Math.min(Math.max(0,cx-w/2),W-w),Math.min(Math.max(0,cy-h/2),H-h),w,h]}
+function viewAspect(){return S.compare?cv.width/(cv.height/2):cv.width/cv.height}
+function eventRect(e){ // fixed crop over the whole event (no camera jitter)
+  const bs=[];for(let f=e.start;f<=e.end;f+=Math.max(1,Math.floor((e.end-e.start)/40))){const d=frameData(f);if(!d)continue;
+    for(const t of d.t||[])if(e.tracks.includes(t[0]))bs.push(t.slice(1,5));for(const p of d.e||[])if(p[6]===e.id)bs.push(p.slice(2,6))}
+  return bs.length?fitRect(unionBoxes(bs),viewAspect(),0.8,180):null}
+function currentRect(f){const W=S.meta.width,H=S.meta.height;
+  if(S.view==="event"&&S.sel&&S.evById[S.sel]){S.eventRect=S.eventRect||eventRect(S.evById[S.sel]);return S.eventRect||[0,0,W,H]}
+  if(S.view==="track"&&S.selTrack!=null){const d=frameData(f);let b=null;if(d){const t=(d.t||[]).find(t=>t[0]===S.selTrack);if(t)b=t.slice(1,5);else{const p=(d.e||[]).find(p=>p[0]===S.selTrack);if(p)b=p.slice(2,6)}}
+    if(b){const r=fitRect(b,viewAspect(),3,200);if(!S.trackRect)S.trackRect=r;else S.trackRect=S.trackRect.map((v,i)=>v+0.25*(r[i]-v))}return S.trackRect||[0,0,W,H]}
+  if(S.view==="gt"&&S.selGt!=null){const d=frameData(f);const g=d&&(d.g||[]).find(g=>g[0]===S.selGt);
+    if(g){const r=fitRect(g.slice(1,5),viewAspect(),3,220);S.gtRect=S.gtRect?S.gtRect.map((v,i)=>v+0.35*(r[i]-v)):r}return S.gtRect||[0,0,W,H]}
+  if(S.view==="manual"){const z=S.manual.z,w=W/z,h=Math.min(H,w/viewAspect());return [Math.min(Math.max(0,S.manual.cx-w/2),W-w),Math.min(Math.max(0,S.manual.cy-h/2),H-h),w,h]}
+  const a=viewAspect();if(W/H>a){const h=H,w=h*a;return [(W-w)/2,0,w,h]}return [0,0,W,H]}
+
+/* ------------------------------------------------------------------ drawing */
+function box(c,b,col,lw,dash){c.setLineDash(dash||[]);c.strokeStyle=col;c.lineWidth=lw;c.strokeRect(b[0],b[1],b[2]-b[0],b[3]-b[1]);c.setLineDash([])}
+function label(c,txt,x,y,col){c.font="bold 12px system-ui";const w=c.measureText(txt).width+6;c.fillStyle="#000b";c.fillRect(x,y-14,w,14);c.fillStyle=col;c.fillText(txt,x+3,y-3)}
+function drawPane(f,ti,y0,ph,rect){
+  const [rx,ry,rw,rh]=rect,sx=cv.width/rw,sy=ph/rh;
+  try{ctx.drawImage(vid,rx,ry,rw,rh,0,y0,cv.width,ph)}catch(e){}
+  const d=frameData(f,ti),T=b=>[(b[0]-rx)*sx,(b[1]-ry)*sy+y0,(b[2]-rx)*sx,(b[3]-ry)*sy+y0];
+  ctx.save();ctx.beginPath();ctx.rect(0,y0,cv.width,ph);ctx.clip();
+  if(d===undefined){label(ctx,"loading overlay…",8,y0+20,"#fbbf24")}
+  else if(d===null){}
+  else{
+    const idMode=$("ids").value,showId=(h,id)=>idMode==="all"||(idMode==="auto"&&h>=26)||(idMode==="sel"&&id===S.selTrack);
+    const act=new Set(),actCat={};if($("lEv").checked)for(const e of S.events)if(f>=e.start&&f<=e.end&&(!S.compare||S.runs[S.run]?.tracker_input===ti)){for(const t of e.tracks){act.add(t);actCat[t]=e.cat}}
+    const oc={};for(const o of d.o||[])oc[o[0]]=o;
+    if($("lGT").checked||S.dbg)for(const g of d.g||[]){const b=T(g.slice(1)),o=S.dbg?oc[g[0]]:null,sel=g[0]===S.selGt;
+      if(o){const c=CODES[o[1]],col=CODE_COL[c];box(ctx,b,sel?"#ffffff":col,sel?3:(c==="ok"?1:2),c==="ok"?[2,3]:[]);
+        if((b[3]-b[1]>=26&&idMode!=="none")||sel||c!=="ok")label(ctx,"G"+g[0]+(c==="ok"?"":" "+CODE_LAB[c]),b[0],b[3]+14,sel?"#fff":col)}
+      else{box(ctx,b,sel?"#ffffff":"#f5f5f5cc",sel?3:1,[2,3]);if((b[3]-b[1]>=26&&idMode!=="none")||sel)label(ctx,"G"+g[0],b[0],b[3]+14,"#f5f5f5")}
+      S.hits.push({b,kind:"gt",g,o,ti})}
+    if($("lDet").checked){const m=$("detMode").value;for(const x of d.d||[]){const inp=x[6]&1,turf=x[6]&2,person=x[6]&4;
+      if(m==="input"&&!inp&&!(x[6]&8))continue;if(m==="rejected"&&(inp||x[6]&8))continue;if(m.startsWith("st_")&&!stagePass(m.slice(3),x))continue;
+      if(S.benchRun&&S.bench&&(!S.compare||y0>0))continue;const b=T(x);
+      if(x[6]&8)box(ctx,b,"#a3e635",1.5);else if(inp)box(ctx,b,"#4ade80",1.2);else if(turf&&person&&x[4]>0.4)box(ctx,b,"#f472b6",2);else if(person)box(ctx,b,"#fb923c",1,[2,2]);else box(ctx,b,"#9ca3af",1,[1,3]);
+      S.hits.push({b,kind:"det",x})}}
+    if(S.benchRun&&S.bench&&(!S.compare||y0>0)){const bf=S.bench.frames[f];
+      if(!bf)label(ctx,`${S.benchRun}: not computed at this frame (benchmark frames only)`,8,y0+40,"#c4b5fd");
+      else for(const x of bf){const b=T(x);box(ctx,b,"#c084fc",1.6,[5,3]);if(b[3]-b[1]>=22)label(ctx,x[4].toFixed(2),b[0],b[1],"#e9d5ff");S.hits.push({b,kind:"bench",x})}}
+    if($("lTrk").checked)for(const t of d.t||[]){const b=T(t.slice(1,5)),sel=t[0]===S.selTrack;const col=act.has(t[0])?(CAT_COL[actCat[t[0]]]||"#22d3ee"):"#22d3ee";
+      box(ctx,b,sel?"#ffffff":col,sel?3:2);if(showId(b[3]-b[1],t[0])||sel)label(ctx,"T"+t[0],b[0],b[1],sel?"#fff":col);S.hits.push({b,kind:"trk",t,ti})}
+    if($("lEng").checked)for(const p of d.e||[]){const b=T(p.slice(2,6)),sel=p[0]===S.selTrack;box(ctx,b,"#ef4444",2,[6,4]);
+      if(showId(b[3]-b[1],p[0])||sel)label(ctx,"T"+p[0]+"? predicted",b[0],b[3]+14,"#fca5a5");S.hits.push({b,kind:"eng",p})}
+  }
+  ctx.restore();
+  if(S.compare){const lab=paneLabel(ti)+(S.benchRun&&S.bench&&y0>0?" · detector: "+S.benchRun:"");ctx.font="bold 13px system-ui";ctx.fillStyle="#000a";ctx.fillRect(0,y0,ctx.measureText(lab).width+14,20);ctx.fillStyle=ti===S.srcInfo.recommended_tracker_input?"#4ade80":ti==="B0"?"#cbd5e1":"#fbbf24";ctx.fillText(lab,6,y0+15)}
+}
+function draw(f){
+  if(!S.meta)return;if(f==null)f=S.rendered>=0?S.rendered:S.frame;const t0=performance.now();S.hits=[];
+  const rect=currentRect(f);S.rect=rect;
+  if(S.compare){const h=cv.height/2;drawPane(f,S.ti,0,h,rect);drawPane(f,S.cmpWith,h,h,rect);ctx.fillStyle="#38bdf8";ctx.fillRect(0,h-1,cv.width,2)}
+  else drawPane(f,S.ti,0,cv.height,rect);
+  S.rendered=f;S.drawMs=performance.now()-t0;timeline();status();prefetch(f);if(S.dbg)funnel(f);if(S.onRendered)S.onRendered(f)}
+
+/* ------------------------------------------------------------------ clock */
+function onFrame(now,meta){vid.requestVideoFrameCallback(onFrame);
+  S.mediaFrame=frameFromTime(meta.mediaTime);const f=S.target!=null&&!S.playing?S.target:S.mediaFrame;S.frame=f;S.mediaTime=meta.mediaTime;
+  const st=S.stats;st.presented++;if(S.playing){if(st.lastPF!=null){const dt=(now-st.t0)/1000;if(dt>=1){st.fps=(meta.presentedFrames-st.lastPF)/dt;st.lastPF=meta.presentedFrames;st.t0=now}}else{st.lastPF=meta.presentedFrames;st.t0=now}}
+  if(S.playing&&$("loop").checked){const e=S.sel&&S.evById[S.sel];const lr=S.loopRange;const end=lr?lr[1]:e?e.end:nFrames()-1,beg=lr?lr[0]:e?e.start:0;if(f>=end){seek(beg,true);return}}
+  draw(f)}
+function seek(f,keepPlaying){f=clampF(f);S.target=f;S.seeking=true;const t=S.start+(f+0.5)/fps();
+  if(!keepPlaying&&S.playing)pause();vid.currentTime=t;S.frame=f;$("fIn").value=f}
+vid.addEventListener("seeked",()=>{S.seeking=false;const f=S.target!=null?S.target:frameFromTime(vid.currentTime);if(!S.playing)draw(f);if(S.playing)S.target=null});
+vid.addEventListener("ended",()=>{S.playing=false;playBtn()});
+vid.addEventListener("error",()=>{showMsg("The browser cannot play this video: "+(vid.error?vid.error.message||("code "+vid.error.code):"unknown error"))});
+function rate(){const r=parseFloat($("speed").value);return r>0&&r<=4?r:1}
+function play(){S.target=null;vid.playbackRate=rate();S.stats.lastPF=null;S.stats.fps=0;S.playing=true;playBtn();
+  vid.play().catch(e=>{S.playing=false;S.lastPlayError=e.name+": "+e.message;playBtn();if(e.name!=="AbortError"){S.err="play() failed: "+e.message;status()}})}
+function pause(){vid.pause();S.playing=false;S.target=S.frame;playBtn();setTimeout(()=>seek(S.frame),0)}
+function playBtn(){$("bPlay").textContent=S.playing?"⏸ Pause":"▶ Play";$("bPlay").classList.toggle("on",S.playing)}
+async function calibrateStart(){ // first presented frame time on the browser's media timeline (container PTS offset)
+  const stored=S.meta.first_pts_s;S.startStored=stored;
+  const m=await new Promise(res=>{const to=setTimeout(()=>res(null),3000);vid.requestVideoFrameCallback((n,meta)=>{clearTimeout(to);res(meta.mediaTime)});vid.currentTime=0});
+  S.startMeasured=m;S.start=(m!=null)?m:stored;return m}
+
+/* ------------------------------------------------------------------ timeline + lists */
+function rows(){const r=S.events.length?["box_overlap","probable_occlusion","detector_miss","tracker_gap","uncertain"]:(S.windows&&S.windows.length?["window"]:[]);
+  return S.dbg&&S.diag&&S.diag.available?r.concat(["dg_E","dg_B","dg_C","dg_D","dg_re","dg_exit"]):r}
+function rowLab(r){return CAT_LAB[r]||DG_LAB[r]||r}function rowCol(r){return CAT_COL[r]||DG_COL[r]||"#888"}
+function diagItems(){const D=S.diag;if(!S.dbg||!D||!D.available)return [];if(S._diagItems&&S._diagItemsKey===S.selGt)return S._diagItems;
+  const keep=x=>S.selGt==null||x.gid===S.selGt,out=[];
+  for(const e of D.episodes)if(keep(e)){out.push({id:"ep"+e.gid+"_"+e.start,cat:GRP_ROW[e.group],start:e.start,end:e.end,kind:"ep",ref:e});
+    if(e.after)out.push({id:"re"+e.gid+"_"+e.after.frame,cat:"dg_re",start:e.after.frame,end:e.after.frame,kind:"re",ref:e})}
+  for(const c of D.id_changes)if(keep(c))out.push({id:"id"+c.gid+"_"+c.frame,cat:"dg_D",start:c.frame,end:c.frame,kind:"id",ref:c});
+  for(const x of D.exits||[])if(keep(x))out.push({id:"ex"+x.gid+"_"+x.start,cat:"dg_exit",start:x.start,end:x.end,kind:"exit",ref:x});
+  S._diagItems=out;S._diagItemsKey=S.selGt;return out}
+function pack(items){const ends=[];for(const it of items){let l=ends.findIndex(e=>e<it.start);if(l<0){l=ends.length;ends.push(-1)}ends[l]=it.end;it._lane=l}return Math.max(1,ends.length)}
+function tlRange(){const n=nFrames(),c=S.rendered>=0?S.rendered:0;const span=Math.min(n,Math.max(500,S.tlSpan||1500));let a=Math.max(0,c-span/2);if(a+span>n)a=Math.max(0,n-span);return [a,a+span]}
+function timeline(){const W=tl.width,H=tl.height,[a,b]=tlRange(),R=rows(),rh=(H-14)/Math.max(1,R.length),x=f=>(f-a)/(b-a)*W;
+  tctx.fillStyle="#08111d";tctx.fillRect(0,0,W,H);tctx.font="11px system-ui";
+  R.forEach((r,i)=>{tctx.fillStyle=i%2?"#ffffff0a":"#ffffff12";tctx.fillRect(0,i*rh,W,rh-1)});
+  const items=(S.events.length?visibleEvents().map(e=>({...e,kind:"event"})):(S.windows||[]).map(w=>({id:w.id,cat:"window",start:w.start_frame,end:w.end_frame,kind:"window"}))).concat(diagItems());
+  S.tlHits=[];const MAXL=6;
+  R.forEach((r,i)=>{const its=items.filter(e=>e.cat===r&&e.end>=a&&e.start<=b).sort((p,q)=>p.start-q.start||p.end-q.end);const nl=Math.min(MAXL,pack(its)),lh=(rh-4)/nl;
+    for(const e of its){const ln=Math.min(e._lane,nl-1),x0=x(e.start),w=Math.max(2,x(e.end+1)-x0),y=i*rh+2+ln*lh;tctx.fillStyle=rowCol(r);tctx.globalAlpha=e._lane>=MAXL?0.5:0.92;
+      tctx.fillRect(x0,y,w,Math.max(1,lh-1));tctx.globalAlpha=1;const sel=e.id===S.sel||(S.fail&&e.id===S.fail.id);if(sel){tctx.strokeStyle="#fff";tctx.lineWidth=2;tctx.strokeRect(x0,y,w,Math.max(1,lh-1))}
+      S.tlHits.push({x0,x1:x0+w,y0:y,y1:y+lh,e})}
+    tctx.fillStyle="#cfe1f5";tctx.fillText(rowLab(r)+(its.length>1&&pack(its)>MAXL?" (stacked)":""),4,i*rh+11)});
+  tctx.fillStyle="#8aa0b8";for(let f=Math.ceil(a/250)*250;f<=b;f+=250){tctx.fillRect(x(f),H-12,1,4);tctx.fillText(clock(f),x(f)+2,H-2)}
+  const c=x(S.rendered);tctx.fillStyle="#fff";tctx.fillRect(c-1,0,2,H)}
+tl.addEventListener("click",ev=>{const r=tl.getBoundingClientRect(),px=(ev.clientX-r.left)/r.width*tl.width,py=(ev.clientY-r.top)/r.height*tl.height;
+  const [a,b]=tlRange(),f=Math.round(a+px/tl.width*(b-a)),R=rows(),rh=(tl.height-14)/Math.max(1,R.length),row=R[Math.floor(py/rh)];
+  const ppf=tl.width/(b-a),pad=Math.max(0,3*ppf<4?4:0);let h=S.tlHits.find(t=>px>=t.x0-pad&&px<=t.x1+pad&&py>=t.y0&&py<=t.y1);
+  if(!h)h=S.tlHits.find(t=>t.e.cat===row&&px>=t.x0-4&&px<=t.x1+4);
+  if(h){if(h.e.kind==="event"){selectEvent(h.e.id,"start");return}if(h.e.kind==="window"){seek(h.e.start);return}selectFailure(h.e);return}seek(f)});
+tl.addEventListener("wheel",ev=>{ev.preventDefault();S.tlSpan=Math.max(250,Math.min(nFrames(),(S.tlSpan||1500)*(ev.deltaY>0?1.25:0.8)));timeline()},{passive:false});
+function visibleEvents(){const c=$("evCat").value,g=$("evGt").value;return S.events.filter(e=>(!c||e.cat===c)&&(!g||String(e.gt)===g))}
+function renderList(){const L=visibleEvents();$("evCount").textContent=`${L.length} of ${S.events.length}`;
+  $("evlist").innerHTML=L.slice(0,800).map(e=>`<div class="ev${e.id===S.sel?" sel":""}" data-id="${e.id}"><span class="dot" style="background:${CAT_COL[e.cat]}"></span><span>${e.label} · ${CAT_LAB[e.cat]}<br><span class="note">f${e.start}–${e.end} · ${e.tracks.map(t=>"T"+t).join(" ")}${e.gt?" · GT: "+e.gt:""}</span></span><span class="note">${e.level}</span></div>`).join("")+(L.length>800?`<div class="note">first 800 shown; filter to narrow</div>`:"")}
+$("evlist").addEventListener("click",ev=>{const d=ev.target.closest(".ev");if(d)selectEvent(d.dataset.id,"start")});
+$("evCat").onchange=$("evGt").onchange=()=>{renderList();timeline()};
+function selectEvent(id,where){const e=S.evById[id];if(!e)return;S.sel=id;S.eventRect=null;S.selTrack=e.tracks[0];if(S.view==="full"||S.view==="manual")setView("event");
+  renderList();selInfo();seek(where==="peak"?e.peak:e.start)}
+function adjacent(dir){const L=visibleEvents().slice().sort((a,b)=>a.start-b.start),f=S.rendered;const e=dir>0?L.find(e=>e.start>f):[...L].reverse().find(e=>e.start<f);if(e)selectEvent(e.id,"start")}
+function selInfo(){const e=S.sel&&S.evById[S.sel];let h="";
+  if(e)h+=`<b>${e.label}</b> <span class="dot" style="background:${CAT_COL[e.cat]}"></span> ${CAT_LAB[e.cat]} · <code>${e.cls}/${e.sub}</code><br>${e.text}<br>frames ${e.start}–${e.end} (peak ${e.peak}) · evidence ${e.level}${e.uncertain?" · uncertain":""}<br>tracks ${e.tracks.map(t=>"T"+t).join(", ")}${e.gt?`<br>GT outcome: <b>${e.gt}</b>`:""}${e.flags.length?"<br>flags: "+e.flags.join(", "):""}`;
+  if(S.selTrack!=null)h+=`${h?"<hr style='border-color:#1f3550'>":""}Selected track <b>T${S.selTrack}</b> (temporary ID). “Follow selected track” keeps it centred.`;
+  $("selInfo").innerHTML=h||"Click an event in the timeline or list, or a box in the video."}
+
+/* ------------------------------------------------------------------ canvas interaction */
+function canvasXY(ev){const r=cv.getBoundingClientRect();return [(ev.clientX-r.left)/r.width*cv.width,(ev.clientY-r.top)/r.height*cv.height]}
+function hitAt(x,y){let best=null;for(const h of S.hits){const b=h.b;if(x>=b[0]&&x<=b[2]&&y>=b[1]&&y<=b[3]){const a=(b[2]-b[0])*(b[3]-b[1]);const pr={gt:S.dbg?3:0,trk:2,eng:2,bench:1,det:0};if(!best||(pr[h.kind]>pr[best.h.kind]&&a<=best.a*1.6)||(pr[h.kind]===pr[best.h.kind]&&a<best.a))best={h,a}}}return best&&best.h}
+let drag=null;
+cv.addEventListener("mousedown",ev=>{if(S.view==="manual")drag={xy:canvasXY(ev),c:{...S.manual},moved:false}});
+window.addEventListener("mouseup",()=>{setTimeout(()=>drag=null,0)});
+cv.addEventListener("mousemove",ev=>{const [x,y]=canvasXY(ev);
+  if(drag&&S.rect){const k=S.rect[2]/cv.width;S.manual.cx=drag.c.cx-(x-drag.xy[0])*k;S.manual.cy=drag.c.cy-(y-drag.xy[1])*k*(S.compare?2:1);drag.moved=true;if(!S.playing)draw()}
+  const h=hitAt(x,y),tip=$("tip");if(!h){tip.style.display="none";return}
+  let t="";if(h.kind==="det"){const c={p:"player",g:"goalkeeper",r:"referee",b:"ball",u:"unmapped"}[h.x[5]];t=`DETECTOR box · ${c} · conf ${h.x[4].toFixed(2)} · ${h.x[6]&8?"detector only (no tracker for this video)":h.x[6]&1?"passed to tracker":(h.x[6]&2&&h.x[4]>0.4?"removed by turf filter":(h.x[6]&4?"below threshold 0.4":"not a person class"))}`}
+  if(h.kind==="trk")t=`TRACKER output T${h.t[0]} (${h.ti}) · measured detection, conf ${h.t[5].toFixed(2)}`;
+  if(h.kind==="gt")t=`GROUND TRUTH G${h.g[0]} (annotation ID)`+(h.o?` · ${h.ti}: ${CODE_LAB[CODES[h.o[1]]]}`+(h.o[2]!=null?` · temporary T${h.o[2]}`:"")+(h.o[3]!=null?` · cached box conf ${h.o[3]}`:""):"")+(S.dbg?" · click to inspect":"");
+  if(h.kind==="bench")t=`BENCHMARK DETECTOR ${S.benchRun} · conf ${h.x[4].toFixed(2)} · ${h.x[5]}`;
+  if(h.kind==="eng")t=`ENGINE PREDICTION T${h.p[0]} · ${h.p[1].replace("_"," ")} · not detected · ${S.evById[h.p[6]]?.label||""}`;
+  const r=cv.getBoundingClientRect();tip.textContent=t;tip.style.display="block";tip.style.left=Math.min(ev.clientX-r.left+12,r.width-360)+"px";tip.style.top=(ev.clientY-r.top+12)+"px"});
+cv.addEventListener("mouseleave",()=>{$("tip").style.display="none"});
+cv.addEventListener("click",ev=>{if(drag&&drag.moved)return;const h=hitAt(...canvasXY(ev));
+  if(h&&h.kind==="gt"&&S.dbg){S.selGt=h.g[0];S._diagItems=null;S.gtRect=null;$("failGid").value=h.g[0];renderFails();if(!S.playing)draw();return}if(h&&(h.kind==="trk"||h.kind==="eng")){S.selTrack=h.kind==="trk"?h.t[0]:h.p[0];S.trackRect=null;selInfo();if(!S.playing)draw()}});
+cv.addEventListener("wheel",ev=>{if(S.view!=="manual")return;ev.preventDefault();const [x,y]=canvasXY(ev),r=S.rect;
+  const fx=r[0]+x/cv.width*r[2],fy=r[1]+(S.compare?(y%(cv.height/2))/(cv.height/2):y/cv.height)*r[3];const z=Math.max(1,Math.min(12,S.manual.z*(ev.deltaY<0?1.25:0.8)));
+  S.manual.cx=fx+(S.manual.cx-fx)*S.manual.z/z;S.manual.cy=fy+(S.manual.cy-fy)*S.manual.z/z;S.manual.z=z;if(!S.playing)draw()},{passive:false});
+
+/* ------------------------------------------------------------------ status, compare table, provenance */
+function status(){if(!S.meta)return;const f=S.rendered,q=vid.getVideoPlaybackQuality?vid.getVideoPlaybackQuality():null;
+  $("status").innerHTML=`<b>frame ${f}</b> / ${nFrames()-1} · clock ${clock(f)} · container PTS ${(S.start+f/fps()).toFixed(3)} s · ${S.playing?`<span class="ok">playing ${S.stats.fps?S.stats.fps.toFixed(1):"…"} frames/s presented (video ${fps()} fps, rate ${vid.playbackRate}×)</span>`:"paused"}`+
+   (q?` · dropped ${q.droppedVideoFrames}/${q.totalVideoFrames}`:"")+` · overlay ${S.drawMs.toFixed(1)} ms`+(S.seeking?` · <span class="warn">seeking…</span>`:"")+(S.recording?` · <span class="bad">● recording</span>`:"")+(S.err?` · <span class="bad">${S.err}</span>`:"")}
+async function loadCompare(){if(S.srcInfo.kind!=="soccertrack"){$("cmpTbl").innerHTML="No B0/T0 results for this video (no tracker profiles).";return}
+  try{const c=await api(`/api/compare?source=${encodeURIComponent(S.src)}`),P=c.profiles,g=(ti,a,b)=>{const o=P[ti]&&P[ti][a];return o?(b.split(".").reduce((x,k)=>x==null?x:x[k],o)):null};
+    const rowsT=[["HOTA","tracking","HOTA",3],["IDF1","tracking","IDF1",3],["DetPr","tracking","DetPr",3],["ID switches","tracking","IDSW",0],["Fragmentations","tracking","Frag",0],
+      ["Engine events","engine","events_total",0],["Detector-miss events","engine","by_category.detector_miss",0],["Tracker-gap events","engine","by_category.tracker_gap",0],
+      ["Probable occlusions","engine","eval.po_events",0],["PO false (scored)","engine","eval.po_false",0],["PO non-GT person","engine","eval.po_non_gt_person",0],
+      ["PO precision","engine","eval.po_precision",3],["PO recall","engine","eval.po_recall",3],["Claim precision (occl.)","engine","eval.claim_occ_precision",3]];
+    const fmt=(v,n)=>v==null?"–":(n?Number(v).toFixed(n):v);
+    $("cmpTbl").innerHTML=`<table><tr><th>${c.source_id.slice(12)} (${c.role})</th><th>B0</th><th>T0</th></tr>`+rowsT.map(([l,a,b,n])=>`<tr><td>${l}</td><td>${fmt(g("B0",a,b),n)}</td><td>${fmt(g("T0",a,b),n)}</td></tr>`).join("")+
+     `</table><div class="note">TrackEval and eval-v1 vs SoccerTrack GT (22 players, no referees: tracked referees count as false positives). Development data, not independent validation.</div>`}catch(e){$("cmpTbl").textContent="comparison unavailable: "+e.message}}
+function provenance(){const m=S.meta,si=S.srcInfo;let h=`${m.width}×${m.height} · ${m.fps} fps · ${m.frames} frames · ${m.codec} · first PTS stored ${S.startStored.toFixed(3)} s, measured in this browser ${S.startMeasured==null?"n/a":S.startMeasured.toFixed(3)+" s"}`;
+  if(si.kind==="soccertrack")h+=`<br>Tracker input <b>${S.ti}</b>: ${si.tracker_input_text[S.ti]||""}<br>Engine run: ${S.run||"none (no predicted boxes / events)"}<br>Detections: production YOLO26-L cache (tiled, merge NMS 0.5); tracks: ByteTrack (activation 0.5, buffer 75, match 0.95).`;
+  else h+=`<br><span class="warn">Wadi Degla: detector output only (existing M10.8 CPU windows; see the timeline). No tracker, no engine, no ground truth: nothing here measures accuracy.</span>`+(S.windows||[]).map(w=>`<br>${w.id}: ${w.dur_s}s from ${w.t0_s}s, every ${(+w.step_s).toFixed(3)} s, imgsz ${w.imgsz}, upscale ${w.upscale}×, conf ≥ ${w.conf}`).join("");
+  $("prov").innerHTML=h}
+
+/* ------------------------------------------------------------------ source / run selection */
+function setView(v){S.view=v;$("view").value=v;S.eventRect=null;S.trackRect=null;S.gtRect=null;if(v==="manual"&&S.manual.z===1&&S.meta){S.manual={cx:S.meta.width/2,cy:S.meta.height/2,z:2}}if(!S.playing)draw()}
+function sizeCanvas(){const m=S.meta;if(!m)return;const w=1600;cv.width=w;cv.height=S.compare?Math.round(w*m.height/m.width)*2:Math.round(w*m.height/m.width);if(cv.height>1100)cv.height=1100}
+function paneLabel(ti){return ti==="B0"?"B0 · production baseline":ti==="T0"?"T0 · turf filter off (recommended)":`${ti} · ${((S.srcInfo.tracker_input_text||{})[ti]||"").replace(/ \(research benchmark\)/,"")} (research)`}
+function cmpOptions(){const tis=(S.srcInfo&&S.srcInfo.tracker_inputs)||[];const others=tis.filter(t=>t!==S.ti);
+  if(!others.includes(S.cmpWith))S.cmpWith=others.includes("T0")?"T0":others.includes("B0")?"B0":(others[0]||S.ti);
+  $("cmpWith").innerHTML=others.map(t=>`<option value="${t}">${t}</option>`).join("");$("cmpWith").value=S.cmpWith;$("cmpWith").disabled=others.length===0}
+function tiButtons(){const si=S.srcInfo;$("tiBtns").innerHTML=(si.tracker_inputs||[]).map(t=>`<button data-ti="${t}" class="${t===S.ti?"on":""}" title="${(si.tracker_input_text||{})[t]||""}">${t}${t===si.recommended_tracker_input?" (recommended)":t==="B0"?" (baseline)":""}</button>`).join("")||`<span class="note">none</span>`;
+  $("tiGrp").style.display=si.tracker_inputs&&si.tracker_inputs.length?"flex":"none";$("cmp").disabled=(si.tracker_inputs||[]).length<2;cmpOptions()}
+$("cmpWith").onchange=()=>{S.cmpWith=$("cmpWith").value;S.trackRect=null;if(!S.playing)draw()};
+$("tiBtns").addEventListener("click",ev=>{const b=ev.target.closest("button");if(!b)return;S.ti=b.dataset.ti;const r=runFor(S.ti);setRun(r)});
+function runOptions(){const si=S.srcInfo,rs=si.runs.filter(r=>S.compare||r.tracker_input===S.ti);
+  $("run").innerHTML=`<option value="">(none)</option>`+rs.map(r=>`<option value="${r.run_id}">${r.tracker_input} · ${r.profile} · ${r.full?"full match":"frames "+r.window[0]+"–"+r.window[1]}</option>`).join("");$("run").value=S.run}
+async function setRun(run){S.run=run||"";S.events=[];S.evById={};S.sel=null;S.eventRect=null;runOptions();tiButtons();
+  if(S.run){try{const d=await api(`/api/events?source=${encodeURIComponent(S.src)}&run=${encodeURIComponent(S.run)}`);S.events=d.events;for(const e of S.events)S.evById[e.id]=e;
+      const cats=[...new Set(S.events.map(e=>e.cat))],gts=[...new Set(S.events.map(e=>e.gt).filter(x=>x))].sort();
+      $("evCat").innerHTML=`<option value="">all categories</option>`+cats.map(c=>`<option value="${c}">${CAT_LAB[c]}</option>`).join("");
+      $("evGt").innerHTML=`<option value="">any GT outcome</option>`+gts.map(g=>`<option>${g}</option>`).join("")}catch(e){S.err=e.message}}
+  renderList();selInfo();provenance();if(S.dbg)loadDiag();if(!S.playing)draw()}
+$("run").onchange=()=>{const r=S.srcInfo.runs.find(r=>r.run_id===$("run").value);if(r)S.ti=r.tracker_input;setRun($("run").value)};
+async function setSource(key,frame,run){
+  if(S.playing)pause();S.ready=false;S.err=null;showMsg("");S.src=key;S.srcInfo=S.sources.find(s=>s.key===key);S.chunks={};S.pending={};S.rendered=-1;S.sel=null;S.selTrack=null;
+  if(!S.srcInfo){showMsg("Unknown video "+key);return}
+  try{S.meta=await api(`/api/meta?source=${encodeURIComponent(key)}`)}catch(e){showMsg("Cannot open this video: "+e.message);return}
+  S.windows=S.srcInfo.detection_windows||[];
+  S.ti=(S.srcInfo.tracker_inputs||[]).includes(S.ti)?S.ti:((S.srcInfo.tracker_inputs||[])[0]||"B0");
+  if(S.compare&&(S.srcInfo.tracker_inputs||[]).length<2)S.compare=false;cmpOptions();$("cmp").classList.toggle("on",S.compare);sizeCanvas();
+  await new Promise(res=>{const done=()=>{vid.removeEventListener("loadedmetadata",done);vid.removeEventListener("error",done);res()};vid.addEventListener("loadedmetadata",done);vid.addEventListener("error",done);vid.src=S.meta.video_url;vid.load()});
+  if(vid.error){showMsg("The browser cannot decode this video ("+(vid.error.message||vid.error.code)+")");return}
+  await calibrateStart();
+  $("badge").textContent=`${S.meta.width}×${S.meta.height} @ ${S.meta.fps} fps`+(Math.abs(S.start-S.startStored)>0.004?` · start offset corrected ${S.startStored.toFixed(3)}→${S.start.toFixed(3)} s`:"");
+  $("fIn").max=nFrames()-1;
+  let r=run!=null?run:(S.srcInfo.runs.find(r=>r.tracker_input===S.ti&&r.profile==="v2"&&r.full)||{}).run_id||"";
+  if(r&&!S.srcInfo.runs.find(x=>x.run_id===r)){S.err=`run ${r} not found for this video; showing none`;r=""}
+  if(r)S.ti=S.srcInfo.runs.find(x=>x.run_id===r).tracker_input;
+  S.diag=null;S.diagFor="";S.fail=null;S.benchRun="";S.bench=null;$("benchFrames").innerHTML="";
+  await setRun(r);loadCompare();provenance();loadBenchList();S.ready=true;
+  const wf=S.windows.length&&frame==null?S.windows[0].start_frame:frame;seek(wf==null?0:wf)}
+$("src").onchange=()=>{history.replaceState(null,"","?source="+encodeURIComponent($("src").value)+(Q.get("embed")?"&embed=1":""));setSource($("src").value,null,null)};
+$("cmp").onclick=()=>{S.compare=!S.compare;$("cmp").classList.toggle("on",S.compare);sizeCanvas();S.eventRect=null;S.trackRect=null;runOptions();if(!S.playing)draw()};
+
+/* ------------------------------------------------------------------ controls */
+const step=n=>{if(S.playing)pause();seek(S.rendered+n)};
+$("bM25").onclick=()=>step(-25);$("bM1").onclick=()=>step(-1);$("bP1").onclick=()=>step(1);$("bP25").onclick=()=>step(25);
+$("bPlay").onclick=()=>S.playing?pause():play();$("bPrevEv").onclick=()=>adjacent(-1);$("bNextEv").onclick=()=>adjacent(1);
+$("fIn").addEventListener("keydown",ev=>{if(ev.key==="Enter"){const v=parseInt($("fIn").value,10);if(Number.isFinite(v))seek(v)}});
+$("speed").onchange=()=>{vid.playbackRate=rate()};
+$("view").onchange=()=>setView($("view").value);
+$("loop").addEventListener("change",()=>{if(!$("loop").checked)S.loopRange=null});
+for(const id of ["lDet","lTrk","lEng","lGT","lEv","detMode","ids"])$(id).addEventListener("change",()=>{if(!S.playing)draw()});
+window.addEventListener("keydown",ev=>{if(["INPUT","SELECT"].includes(document.activeElement.tagName))return;
+  if(ev.key===" "){ev.preventDefault();S.playing?pause():play()}else if(ev.key==="ArrowLeft")step(ev.shiftKey?-25:-1);else if(ev.key==="ArrowRight")step(ev.shiftKey?25:1);
+  else if(ev.key==="n"||ev.key==="N")adjacent(1);else if(ev.key==="p"||ev.key==="P")adjacent(-1)});
+$("bExport").onclick=()=>{if(S.recording){S.recording.stop();return}if(!window.MediaRecorder){S.err="MediaRecorder not supported";status();return}
+  const e=S.sel&&S.evById[S.sel],a=e?Math.max(0,e.start-25):S.rendered,b=e?Math.min(nFrames()-1,e.end+25):Math.min(nFrames()-1,S.rendered+Math.round(10*fps()));
+  const rec=new MediaRecorder(cv.captureStream(fps()),{mimeType:"video/webm"}),parts=[];rec.ondataavailable=x=>{if(x.data.size)parts.push(x.data)};
+  rec.onstop=()=>{S.recording=null;$("bExport").textContent="⏺ Export clip";const url=URL.createObjectURL(new Blob(parts,{type:"video/webm"})),A=document.createElement("a");
+    A.href=url;A.download=`${S.src}_${S.ti}_f${a}-${b}${e?"_"+e.label:""}.webm`;A.click();S.lastExport={a,b,bytes:parts.reduce((s,p)=>s+p.size,0)};status()};
+  seek(a);const go=()=>{rec.start(500);S.recording=rec;$("bExport").textContent="⏹ Stop export";play();
+    const iv=setInterval(()=>{if(!S.recording){clearInterval(iv);return}if(S.rendered>=b||!S.playing){clearInterval(iv);pause();rec.stop()}},100)};setTimeout(go,400)};
+
+/* ------------------------------------------------------------------ debugger */
+function stagePass(st,x){const person=x[6]&4,turf=x[6]&2,c=x[4];if(st==="raw")return true;if(!person)return false;
+  if(st==="T0L")return c>0.1;if(st==="T0")return c>0.4;if(st==="B0")return c>0.4&&!turf;return true}
+function setDbg(on){S.dbg=on;document.body.classList.toggle("dbg",on);$("dbg").classList.toggle("on",on);$("tl").height=on?210:120;
+  if(on&&$("detMode").value==="all")$("detMode").value="all";if(on)loadDiag();else{S.selGt=null;S.fail=null}if(!S.playing)draw()}
+async function loadDiag(){if(!S.srcInfo||S.srcInfo.kind!=="soccertrack"){S.diag=null;renderFails();return}const key=S.src+"|"+S.ti;if(S.diagFor===key&&S.diag)return;
+  S.diagFor=key;S.diag=null;S._diagItems=null;renderFails();
+  try{const d=await api(`/api/diag?source=${encodeURIComponent(S.src)}&profile=${encodeURIComponent(S.ti)}`);if(S.diagFor!==key)return;S.diag=d;S._diagItems=null}
+  catch(e){S.diag={available:false,reason:e.message}}renderFails();if(!S.playing)draw()}
+function codeLegend(){$("codeLegend").innerHTML=CODES.map(c=>`<span style="color:${CODE_COL[c]}">■</span> ${CODE_LAB[c]}`).join(" · ")}
+function failItems(){const D=S.diag;if(!D||!D.available)return [];const g=$("failGrp").value,mn=parseInt($("failMin").value,10)||1,gid=$("failGid").value===""?null:parseInt($("failGid").value,10);
+  let L=[];if(g!=="D")for(const e of D.episodes){if(g&&e.group!==g)continue;if(e.frames<mn)continue;if(gid!=null&&e.gid!==gid)continue;L.push({id:"ep"+e.gid+"_"+e.start,cat:GRP_ROW[e.group],start:e.start,end:e.end,kind:"ep",ref:e})}
+  if(!g||g==="D")for(const c of D.id_changes){if(gid!=null&&c.gid!==gid)continue;L.push({id:"id"+c.gid+"_"+c.frame,cat:"dg_D",start:c.frame,end:c.frame,kind:"id",ref:c})}
+  return L.sort((p,q)=>p.start-q.start)}
+function renderFails(){const D=S.diag;if(!S.dbg)return;codeLegend();
+  if(!D){$("failList").innerHTML=`<div class="note">loading…</div>`;return}
+  if(!D.available){$("failList").innerHTML=`<div class="note warn">${D.reason||"no decomposition for this video/profile"}</div>`;$("failCount").textContent="";return}
+  const L=failItems();$("failCount").textContent=`${L.length} shown · profile ${D.profile}`;
+  $("failList").innerHTML=L.slice(0,600).map(it=>{const e=it.ref,col=rowCol(it.cat);const t=it.kind==="id"?`G${e.gid}: T${e.from} → T${e.to}`:`G${e.gid}: ${CODE_LAB[e.cause]} · ${e.frames} fr`;
+    return `<div class="fl${S.fail&&S.fail.id===it.id?" sel":""}" data-id="${it.id}"><span class="dot" style="background:${col}"></span><span>${t}<br><span class="note">f${it.start}${it.end!==it.start?"–"+it.end:""}${it.kind==="ep"?` · ${e.size} · ${e.visibility}${e.id_after_gap==="changed"?" · new ID after":""}`:""}</span></span><span class="note">${it.kind==="id"?"D":e.group}</span></div>`}).join("")+(L.length>600?`<div class="note">first 600; narrow the filter</div>`:"");
+  S._failMap={};for(const it of L)S._failMap[it.id]=it}
+$("failList").addEventListener("click",ev=>{const d=ev.target.closest(".fl");if(d&&S._failMap[d.dataset.id])selectFailure(S._failMap[d.dataset.id])});
+for(const id of ["failGrp","failMin","failGid"])$(id).addEventListener("change",renderFails);
+function selectFailure(it){S.fail=it;const e=it.ref;S.selGt=e.gid;S._diagItems=null;S.gtRect=null;if(S.view!=="gt")setView("gt");
+  const kv=(k,v)=>`<b>${k}</b><span>${v}</span>`;let h=`<div class="kv">`+kv("match",`${S.src} (${S.srcInfo.role})`)+kv("profile",`${S.ti} · ${(S.srcInfo.tracker_input_text||{})[S.ti]||""}`)+kv("GT player",`G${e.gid} (annotation ID)`);
+  let frames,labels;
+  if(it.kind==="ep"){const b=e.before,a=e.after;const ev=Object.entries(e.codes).map(([c,n])=>`${CODE_LAB[c]} ×${n}`).join(", ");
+    h+=kv("missing",`frames ${e.start}–${e.end} (${e.frames} fr, ${(e.frames/fps()).toFixed(2)} s)`)+
+      kv("before",b?`last tracked f${b.frame} as <b>T${b.tid}</b> (temporary), box conf ${b.conf}`:"not tracked just before (start of annotation / previous gap)")+
+      kv("after",a?`first tracked again f${a.frame} as <b>T${a.tid}</b>, conf ${a.conf}`:"not tracked again before the player leaves the annotation / view")+
+      kv("ID after gap",e.id_after_gap==null?"unknown (no track before or after)":e.id_after_gap==="same"?"same temporary ID kept":"<span class='warn'>changed</span> (fragmentation; GT-verified: same G## before and after)")+
+      kv("evidence",ev)+kv("cause (measured)",`<b>${CODE_LAB[e.cause]}</b> (${e.group}) — ${S.diag.code_text[e.cause]}`)+
+      (e.miss_hints&&Object.keys(e.miss_hints).length?kv("miss hints",Object.entries(e.miss_hints).map(([k,n])=>`${k} ×${n}`).join(", ")+" <span class='note'>(geometry hint, not measured: pre-merge boxes were not stored)</span>"):"")+
+      kv("nearby",e.nearest_gt!=null?`closest GT G${e.nearest_gt}, max GT–GT IoU ${e.max_iou_with_other_gt}, max GT cover ${e.max_cover} (${e.visibility}; GT-derived, not confirmed occlusion)`:"no overlapping GT player")+
+      kv("size",`${e.size} (median ${e.median_height.toFixed(0)} px)`)+kv("lighting",e.low_light?"low-light match (117092)":"normal");
+    const bf=b?b.frame:Math.max(0,e.start-1),af=a?a.frame:e.end+1;frames=[bf,e.start,Math.round((e.start+e.end)/2),e.end,af];labels=["before","start","middle","end","after"];it.before=bf;it.after=af}
+  else if(it.kind==="id"){h+=kv("frame",e.frame)+kv("change",`T${e.from} → <b>T${e.to}</b>`)+kv("verified",`yes: GT G${e.gid} is the same annotated player before and after (temporary IDs only)`)+
+      kv("type",e.frames_since_last_tracked===1?"direct switch (tracked in the previous frame)":`after ${e.frames_since_last_tracked} frames without a track`)+
+      kv("previous ID",e.previous_id_still_output?"<span class='warn'>still output on another box in this frame (ID swap / theft)</span>":"no longer output");
+    frames=[e.frame-(e.frames_since_last_tracked||1)-5,e.frame-1,e.frame,e.frame+5,e.frame+25].map(f=>Math.max(0,f));labels=["before","prev","switch","+5","+25"];it.before=frames[0];it.after=frames[4]}
+  else if(it.kind==="re"){return selectFailure({...it,kind:"ep",id:"ep"+e.gid+"_"+e.start})}
+  else{h+=kv("leaves view",`frames ${e.start}–${e.end} (${e.frames} fr), ${e.reason==="off_pitch"?"off the annotated pitch":"touching the frame border"} (GT-verified)`);frames=[Math.max(0,e.start-10),e.start,e.end,e.end+10];labels=["before","exit","end","after"];it.before=frames[0];it.after=frames[3]}
+  $("failInfo").innerHTML=h+`</div>`;$("failBtns").style.display="flex";
+  const img=$("stripImg");img.style.display="block";img.alt="loading before / during / after frames…";
+  img.src=`/api/strip?source=${encodeURIComponent(S.src)}&gid=${e.gid}&profile=${encodeURIComponent(S.ti)}&frames=${frames.join(",")}&labels=${labels.join(",")}`;
+  renderFails();seek(it.kind==="id"?e.frame:it.start)}
+$("fBefore").onclick=()=>S.fail&&seek(S.fail.before);$("fDuring").onclick=()=>S.fail&&seek(Math.round((S.fail.start+S.fail.end)/2));$("fAfter").onclick=()=>S.fail&&seek(S.fail.after);
+$("fPlay").onclick=()=>{if(!S.fail)return;const a=Math.max(0,S.fail.before-25),b=S.fail.after+25;S.loopRange=[a,b];$("loop").checked=true;setView("gt");seek(a);setTimeout(play,300)};
+function funnel(f){const d=frameData(f);if(!d){$("funnel").textContent="loading…";return}const D=d.d||[];
+  const n=st=>D.filter(x=>stagePass(st,x)).length,person=D.filter(x=>x[6]&4).length;const oc={};for(const o of d.o||[]){const c=CODES[o[1]];oc[c]=(oc[c]||0)+1}
+  let h=`<table><tr><th>stage (frame ${f})</th><th>boxes</th></tr><tr><td>raw cache, every class (conf &gt; 0.1, after tile merge)</td><td>${D.length}</td></tr><tr><td>person classes</td><td>${person}</td></tr>`+
+    `<tr><td>conf &gt; 0.4 (T0 input)</td><td>${n("T0")}</td></tr><tr><td>… and turf filter (B0 input)</td><td>${n("B0")}</td></tr><tr><td>tracker output (${S.ti})</td><td>${(d.t||[]).length}</td></tr><tr><td>GT players annotated</td><td>${(d.g||[]).length}</td></tr></table>`;
+  h+=d.o?`<div style="margin-top:4px">${CODES.filter(c=>oc[c]).map(c=>`<span style="color:${CODE_COL[c]}">■</span> ${CODE_LAB[c]} <b>${oc[c]}</b>`).join(" · ")}</div>`:`<div class="warn">no pipeline decomposition for ${S.ti}</div>`;
+  $("funnel").innerHTML=h}
+async function loadBenchList(){if(!S.srcInfo||S.srcInfo.kind!=="soccertrack"){$("benchRun").innerHTML=`<option value="">(none for this video)</option>`;return}
+  try{const d=await api(`/api/bench?source=${encodeURIComponent(S.src)}`);$("benchRun").innerHTML=`<option value="">(production cache only)</option>`+d.runs.filter(r=>r.run!=="yolo26l-football__production-cache").map(r=>`<option value="${r.run}">${r.run} (${r.device})</option>`).join("");$("benchRun").value=S.benchRun||""}catch(e){$("benchInfo").textContent=e.message}}
+$("benchRun").onchange=async()=>{S.benchRun=$("benchRun").value;S.bench=null;$("benchFrames").innerHTML="";if(!S.benchRun){if(!S.playing)draw();return}
+  try{S.bench=await api(`/api/bench?source=${encodeURIComponent(S.src)}&run=${encodeURIComponent(S.benchRun)}`);const fr=Object.keys(S.bench.frames).map(Number).sort((a,b)=>a-b);
+    $("benchInfo").innerHTML=`${S.bench.provenance.detector} · ${S.bench.provenance.protocol} · ${S.bench.provenance.device} · ${fr.length} benchmark frames in this match. ${S.bench.note}.`;
+    $("benchFrames").innerHTML=fr.map(f=>`<button data-f="${f}">f${f}</button>`).join("")}catch(e){$("benchInfo").textContent=e.message}if(!S.playing)draw()};
+$("benchFrames").addEventListener("click",ev=>{const b=ev.target.closest("button");if(b)seek(parseInt(b.dataset.f,10))});
+async function loadGallery(){try{const g=await api("/api/gallery");if(!g.items.length){$("galList").textContent="no gallery yet (python -m football_fatigue.video.failures gallery)";return}
+  S.gallery=g.items;$("galList").innerHTML=`<div class="note">${g.selection_rule||""}</div>`+g.items.map((it,i)=>`<div class="fl" data-i="${i}"><span class="dot" style="background:${CODE_COL[it.code]||"#38bdf8"}"></span><span>${it.title}<br><span class="note">${it.category} · ${it.source_id.slice(12)} f${it.frame}${it.gid!=null?" · G"+it.gid:""} · ${it.profile}</span></span><a class="note" href="/gallery/${it.file}" target="_blank">png</a></div>`).join("")}catch(e){$("galList").textContent=e.message}}
+$("galList").addEventListener("click",async ev=>{if(ev.target.tagName==="A")return;const d=ev.target.closest(".fl");if(!d)return;const it=S.gallery[+d.dataset.i];await openItem(it)});
+async function openItem(it){if(S.src!==it.source_id){$("src").value=it.source_id;S.ti=it.profile;await setSource(it.source_id,it.frame,null)}else if(S.ti!==it.profile){S.ti=it.profile;await setRun(runFor(S.ti))}
+  if(!S.dbg)setDbg(true);await loadDiag();S.selGt=it.gid;S._diagItems=null;
+  const f=S.diag&&S.diag.available?(it.kind==="id"?S.diag.id_changes.find(c=>c.gid===it.gid&&c.frame===it.frame):S.diag.episodes.find(e=>e.gid===it.gid&&e.start===it.start)):null;
+  if(f)selectFailure(it.kind==="id"?{id:"id"+f.gid+"_"+f.frame,cat:"dg_D",start:f.frame,end:f.frame,kind:"id",ref:f}:{id:"ep"+f.gid+"_"+f.start,cat:GRP_ROW[f.group],start:f.start,end:f.end,kind:"ep",ref:f});
+  else{if(it.gid!=null)setView("gt");seek(it.frame)}}
+$("dbg").onclick=()=>setDbg(!S.dbg);
+
+/* ------------------------------------------------------------------ boot */
+async function boot(){
+  if(Q.get("embed"))document.body.style.fontSize="12.5px";
+  if(!("requestVideoFrameCallback" in HTMLVideoElement.prototype)){showMsg("This browser lacks requestVideoFrameCallback (use Chrome or Edge).");return}
+  try{S.sources=await api("/api/sources")}catch(e){showMsg("Cannot reach the player server: "+e.message);return}
+  if(!S.sources.length){showMsg("No videos found under the data root.");return}
+  $("src").innerHTML=S.sources.map(s=>`<option value="${s.key}">${s.title}</option>`).join("");
+  let key=Q.get("source")||"",run=Q.get("run");if(run&&!key){const s=S.sources.find(s=>s.runs.some(r=>r.run_id===run));key=s?s.key:""}
+  let bootErr=null;if(key&&!S.sources.find(s=>s.key===key)){bootErr=`unknown video ${key}; showing the first one`;key=""}
+  key=key||S.sources[0].key;$("src").value=key;vid.requestVideoFrameCallback(onFrame);
+  if(Q.get("ti"))S.ti=Q.get("ti");if(Q.get("cmp")){S.compare=true;S.cmpWith=Q.get("cmp")}
+  const fr=Q.get("frame")!=null?parseInt(Q.get("frame"),10):null;await setSource(key,Number.isFinite(fr)?fr:null,run);
+  loadGallery();if(Q.get("debug")){setDbg(true);if(Q.get("gid")!=null){S.selGt=parseInt(Q.get("gid"),10);$("failGid").value=S.selGt;setView("gt")}}
+  if(bootErr){S.err=bootErr;status()}}
+window.P={S,seek,play,pause,step,selectEvent,adjacent,setView,setSource,setRun,draw,frameFromTime,setDbg,loadDiag,selectFailure,failItems,openItem,diagItems,stagePass,
+  sampleGrey:(w,h,r)=>{const c=document.createElement("canvas");c.width=w;c.height=h;const x=c.getContext("2d");if(r)x.drawImage(vid,r[0],r[1],r[2],r[3],0,0,w,h);else x.drawImage(vid,0,0,w,h);const d=x.getImageData(0,0,w,h).data,g=[];for(let i=0;i<d.length;i+=4)g.push(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]);return g}};
+boot();
+</script>
+</body>
+</html>
