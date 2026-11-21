@@ -26,4 +26,5 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]          # this worktree's src first, even with an inherited PYTHONPATH (Session B shares the venv)
 addopts = "--import-mode=importlib"

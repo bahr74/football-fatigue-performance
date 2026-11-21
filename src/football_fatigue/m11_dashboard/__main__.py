@@ -2,7 +2,10 @@
 ``python -m football_fatigue.m11_dashboard verify --match <development id> [--limit N]`` compares the dashboard's per-encounter
 inference with the Step 6 batch path on one development match and prints the result (nothing is written);
 ``python -m football_fatigue.m11_dashboard [--port 8503] encounters`` (options before the subcommand) launches the synchronized-encounter explorer
-(``encounters_app.py``)."""
+(``encounters_app.py``);
+``python -m football_fatigue.m11_dashboard --port 8610 lab`` launches the M11 Trajectory Recovery Lab (``lab_app.py``);
+``python -m football_fatigue.m11_dashboard --port 8620 studio`` launches the M11 Studio (``studio_app.py``: explorer, recovery lab,
+N x M lab, review queue, evidence)."""
 
 from __future__ import annotations
 
@@ -25,6 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--match", required=True)
     v.add_argument("--limit", type=int, default=None, help="first N instances only")
     sub.add_parser("encounters", help="launch the synchronized-encounter explorer (v2 events, v3 contexts; development matches)")
+    sub.add_parser("lab", help="launch the M11 Trajectory Recovery Lab (live GRU C / HGB C inference on development scenarios)")
+    sub.add_parser("studio", help="launch the M11 Studio (match & interaction explorer, recovery lab, N x M lab, review queue, evidence)")
     a = ap.parse_args(argv)
     root = str(Path(a.root).resolve())
     if a.cmd == "verify":
@@ -44,8 +49,10 @@ def main(argv: list[str] | None = None) -> int:
                    seconds=round(time.perf_counter() - t0, 1))
         print(json.dumps(res, indent=1))
         return 0 if res["max_abs_probability_diff"] == 0.0 and not res["decision_mismatches"] and not res["assignment_problems"] else 1
-    app = Path(__file__).with_name("encounters_app.py" if a.cmd == "encounters" else "app.py")
-    return subprocess.call([sys.executable, "-m", "streamlit", "run", str(app), "--server.port", str(a.port), "--server.address", a.address, "--server.headless",
+    app = Path(__file__).with_name({"encounters": "encounters_app.py", "lab": "lab_app.py", "studio": "studio_app.py"}.get(a.cmd, "app.py"))
+    from football_fatigue.worktree import child_env
+    # the Streamlit child imports football_fatigue from the same src as this launcher (not from an inherited PYTHONPATH)
+    return subprocess.call(env=child_env(), args=[sys.executable, "-m", "streamlit", "run", str(app), "--server.port", str(a.port), "--server.address", a.address, "--server.headless",
                             str(a.headless).lower(), "--browser.gatherUsageStats", "false", "--", "--root", root])
 
 

@@ -1,0 +1,61 @@
+{
+  "schema": "m11-session-ab-candidate-event-v1",
+  "synthetic_example": true,
+  "event_id": "B-SYN0001-p1-000431",
+  "producer": {"session": "B", "component": "video-tracker", "version": "SYNTHETIC", "config_sha256": "SYNTHETIC"},
+  "match": {"match_id": "SYNTHETIC-0001", "period": 1, "fps": 25.0, "clock": "video_time_s"},
+  "camera": {
+    "camera_id": "panorama",
+    "calibration": {"available": true, "calibration_id": "calib-SYN-01", "model": "homography_ground_plane",
+                    "reprojection_error_m": {"median": 0.42, "p90": 1.10}, "valid_region": "pitch_polygon_v1", "time_varying": false}
+  },
+  "trigger": {
+    "type": "track_fragmentation",
+    "reasons": ["two_tracks_lost_within_0p5s", "boxes_overlap_before_loss"],
+    "note": "box overlap and track loss are trigger evidence only; they are not proof of visual occlusion",
+    "occlusion_candidate": {"box_iou_max": 0.31, "foot_point_distance_px_min": 14.0, "verified_visual_occlusion": null}
+  },
+  "window": {
+    "hidden_interval_s": [812.40, 813.60],
+    "per_track_hidden_intervals": {"trk-17": [811.68, 813.40], "trk-23": [811.76, 813.64]}
+  },
+  "incoming": [
+    {"tracklet_id": "trk-17",
+     "identity": {"global_id": "home-08", "identity_status": "confirmed", "identity_confidence": 0.93, "source": "jersey_ocr+continuity"},
+     "observations": {"frame": [20290, 20291, 20292], "timestamp_s": [811.60, 811.64, 811.68],
+                      "pixel": {"x_px": [1504.1, 1506.0, 1507.8], "y_px": [702.5, 703.1, 703.9], "box_h_px": [88.0, 88.4, 88.1], "det_conf": [0.91, 0.90, 0.86]},
+                      "pitch": {"x_m": [12.31, 12.40, 12.48], "y_m": [-3.10, -3.07, -3.02], "sigma_m": [0.35, 0.35, 0.36]},
+                      "position_status": ["observed", "observed", "observed"]},
+     "truncated_note": "only 3 samples shown; a real request carries >= 2 s of context"},
+    {"tracklet_id": "trk-23",
+     "identity": {"global_id": "away-05", "identity_status": "linked_unvalidated", "identity_confidence": 0.71, "source": "continuity"},
+     "observations": {"frame": [20293, 20294], "timestamp_s": [811.72, 811.76],
+                      "pixel": {"x_px": [1522.4, 1520.9], "y_px": [699.0, 699.6], "box_h_px": [86.0, 86.2], "det_conf": [0.88, 0.84]},
+                      "pitch": {"x_m": [12.95, 12.88], "y_m": [-3.40, -3.36], "sigma_m": [0.36, 0.36]},
+                      "position_status": ["observed", "observed"]}}
+  ],
+  "outgoing_candidates": [
+    {"tracklet_id": "trk-41", "identity": {"global_id": null, "identity_status": "anonymous"},
+     "observations": {"frame": [20335, 20336], "timestamp_s": [813.40, 813.44],
+                      "pixel": {"x_px": [1531.0, 1533.2], "y_px": [705.0, 705.2], "box_h_px": [87.0, 87.5], "det_conf": [0.79, 0.88]},
+                      "pitch": {"x_m": [13.20, 13.27], "y_m": [-2.65, -2.61], "sigma_m": [0.37, 0.37]},
+                      "position_status": ["observed", "observed"]}},
+    {"tracklet_id": "trk-42", "identity": {"global_id": null, "identity_status": "anonymous"},
+     "observations": {"frame": [20341], "timestamp_s": [813.64],
+                      "pixel": {"x_px": [1496.0], "y_px": [700.2], "box_h_px": [85.0], "det_conf": [0.66]},
+                      "pitch": {"x_m": [11.92], "y_m": [-3.71], "sigma_m": [0.38]},
+                      "position_status": ["observed"]}},
+    {"tracklet_id": "trk-43", "identity": {"global_id": null, "identity_status": "anonymous"},
+     "observations": {"frame": [20340], "timestamp_s": [813.60],
+                      "pixel": {"x_px": [1610.0], "y_px": [690.0], "box_h_px": [84.0], "det_conf": [0.52]},
+                      "pitch": {"x_m": [16.80], "y_m": [-4.40], "sigma_m": [0.40]},
+                      "position_status": ["observed"]},
+     "candidate_reason": "within_search_radius_distractor"}
+  ],
+  "dormant_tracks": [
+    {"global_id": "home-11", "last_seen_s": 806.20, "last_pitch_m": [18.4, -9.2], "left_camera_view": true}
+  ],
+  "context_players": [{"tracklet_id": "trk-09", "global_id": "home-04", "min_distance_m": 2.6}],
+  "appearance": {"available": false, "reason": "no ReID features exported for this camera"},
+  "provenance": {"frames_jsonl_sha256": "SYNTHETIC", "detector": "SYNTHETIC", "tracker": "SYNTHETIC", "created": "2026-11-20T00:00:00Z"}
+}
