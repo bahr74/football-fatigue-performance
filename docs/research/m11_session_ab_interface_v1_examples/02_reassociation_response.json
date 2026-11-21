@@ -1,0 +1,36 @@
+{
+  "schema": "m11-session-ab-reassociation-result-v1",
+  "synthetic_example": true,
+  "event_id": "B-SYN0001-p1-000431",
+  "producer": {"session": "A", "component": "identity-reassociation", "version": "SYNTHETIC", "model_bundle_sha256": "SYNTHETIC",
+               "trained_domain": "PFF metric pitch coordinates (FIFA WC 2022 tracking); not validated on video-derived positions"},
+  "input_contract": {"coordinate_system": "pitch_m", "resampled_hz": 15.0, "context_s": 2.0,
+                     "domain_check": {"calibration_ok": true, "sigma_m_p90": 0.38, "inside_trained_envelope": false,
+                                      "reasons": ["position uncertainty far above the provider data the models were trained on",
+                                                  "asynchronous loss (per-track hidden intervals differ)"]}},
+  "candidates_scored": {"incoming": ["trk-17", "trk-23"], "outgoing": ["trk-41", "trk-42", "trk-43"]},
+  "link_scores": [
+    {"incoming": "trk-17", "outgoing": "trk-41", "score_kind": "kalman_bidir_nll", "value": 1.9, "inside_gate": true},
+    {"incoming": "trk-17", "outgoing": "trk-42", "score_kind": "kalman_bidir_nll", "value": 7.4, "inside_gate": true},
+    {"incoming": "trk-17", "outgoing": "trk-43", "score_kind": "kalman_bidir_nll", "value": 41.0, "inside_gate": false},
+    {"incoming": "trk-23", "outgoing": "trk-41", "score_kind": "kalman_bidir_nll", "value": 6.8, "inside_gate": true},
+    {"incoming": "trk-23", "outgoing": "trk-42", "score_kind": "kalman_bidir_nll", "value": 2.2, "inside_gate": true},
+    {"incoming": "trk-23", "outgoing": "trk-43", "score_kind": "kalman_bidir_nll", "value": 38.5, "inside_gate": false}
+  ],
+  "decision": {
+    "status": "assigned",
+    "solver": "hungarian_with_null",
+    "assignments": [
+      {"incoming": "trk-17", "outgoing": "trk-41", "global_id": "home-08", "probability": null, "margin": 10.1},
+      {"incoming": "trk-23", "outgoing": "trk-42", "global_id": "away-05", "probability": null, "margin": 10.1}
+    ],
+    "unmatched_incoming": [],
+    "unmatched_outgoing": [{"tracklet_id": "trk-43", "reason": "outside_gate"}],
+    "calibrated": false,
+    "abstention": {"abstained": false, "rule": "SYNTHETIC: margin threshold fitted on a separate calibration partition"},
+    "delayed": false
+  },
+  "identity_effect": {"propagates_global_id": false,
+                      "reason": "incoming trk-23 is linked_unvalidated; the assignment is a suggestion, not a confirmed identity"},
+  "provenance": {"request_sha256": "SYNTHETIC", "code_sha256": "SYNTHETIC", "created": "2026-11-20T00:00:01Z"}
+}

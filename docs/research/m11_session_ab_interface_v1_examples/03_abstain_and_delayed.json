@@ -1,0 +1,25 @@
+{
+  "schema": "m11-session-ab-reassociation-result-v1",
+  "synthetic_example": true,
+  "event_id": "B-SYN0001-p1-000502",
+  "producer": {"session": "A", "component": "identity-reassociation", "version": "SYNTHETIC"},
+  "input_contract": {"coordinate_system": "pitch_m",
+                     "domain_check": {"calibration_ok": false, "inside_trained_envelope": false,
+                                      "reasons": ["calibration reprojection p90 above the agreed limit"]}},
+  "candidates_scored": {"incoming": ["trk-30", "trk-31"], "outgoing": ["trk-55"]},
+  "link_scores": [],
+  "decision": {
+    "status": "abstain",
+    "solver": null,
+    "assignments": [],
+    "unmatched_incoming": [{"tracklet_id": "trk-30", "reason": "abstained"}, {"tracklet_id": "trk-31", "reason": "abstained"}],
+    "unmatched_outgoing": [{"tracklet_id": "trk-55", "reason": "abstained"}],
+    "calibrated": false,
+    "abstention": {"abstained": true, "reason": "input outside the validated domain (calibration)"},
+    "delayed": true,
+    "delay": {"reopen_until_s": 830.0,
+              "waiting_for": ["second outgoing tracklet (one player still missing)", "jersey OCR evidence"],
+              "dormant_ids": ["home-02", "away-09"]}
+  },
+  "identity_effect": {"propagates_global_id": false, "reason": "abstained"}
+}

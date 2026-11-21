@@ -1,0 +1,75 @@
+/* Multi-camera lab - same visual identity as the M7 coach dashboard (demo.html tokens) */
+:root{--bg:#060d17;--panel:#0d1828;--panel2:#11203a;--line:#1f3550;--muted:#8ea3bb;--ink:#eaf2fc;--acc:#38bdf8;
+  --matched:#22c55e;--ambiguous:#f59e0b;--moving:#e879f9;--fixed:#38bdf8;--pred:#fde68a;--off:#64748b;--bad:#f87171;--warn:#fbbf24}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--acc)}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+header .tag{font-size:11px;padding:2px 8px;border:1px solid var(--warn);color:var(--warn);border-radius:999px}
+nav.tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav.tabs button,nav.tabs a{background:transparent;border:1px solid var(--line);color:var(--muted);padding:6px 12px;border-radius:8px;cursor:pointer;font:inherit;text-decoration:none}
+nav.tabs button.on{color:var(--ink);border-color:var(--acc);background:#0b2236}
+.mode{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.mode button{background:transparent;border:0;color:var(--muted);padding:6px 10px;cursor:pointer;font:inherit}
+.mode button.on{background:var(--acc);color:#04121f;font-weight:600}
+main{padding:12px 16px 40px}
+.view{display:none}.view.on{display:block}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:10px}
+.bar label{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:4px;min-width:0;max-width:100%}
+.bar label select,.row label select{min-width:0;flex:1 1 auto}
+.row label{display:flex;align-items:center;gap:4px;min-width:0;max-width:100%}
+code{overflow-wrap:anywhere}
+select,input[type=number],input[type=text],input[type=file]{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit;max-width:100%}
+button.b{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit}
+button.b:hover{border-color:var(--acc)}button.b.primary{background:var(--acc);color:#04121f;border-color:var(--acc);font-weight:600}
+button.b:disabled{opacity:.45;cursor:not-allowed}
+input[type=range]{accent-color:var(--acc)}
+#scrub{flex:1 1 240px;min-width:160px}
+.time{font-variant-numeric:tabular-nums;color:var(--ink);min-width:150px}
+.sync{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:7px 10px;margin-bottom:10px}
+.sync b{color:var(--ink);font-weight:600}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;border:1px solid currentColor}
+.pill.ok{color:var(--matched)}.pill.warn{color:var(--warn)}.pill.bad{color:var(--bad)}.pill.info{color:var(--acc)}.pill.off{color:var(--off)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.grid.wide{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(300px,.9fr)}
+@media (max-width:1180px){.grid.wide{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+@media (max-width:760px){.grid,.grid.wide{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;min-width:0;position:relative}
+.card h3{margin:0 0 6px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.card h3 .src{font-weight:400;text-transform:none;letter-spacing:0;font-variant-numeric:tabular-nums}
+canvas.view{display:block;width:100%;height:auto;background:#020711;border-radius:6px;cursor:crosshair}
+.overlaymsg{position:absolute;inset:34px 8px 8px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);background:rgba(2,7,17,.72);border-radius:6px;padding:10px;pointer-events:none}
+.overlaymsg[hidden],[hidden]{display:none !important}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted);margin:8px 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.side{display:flex;flex-direction:column;gap:10px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px}
+.kv dt{color:var(--muted)}.kv dd{margin:0;font-variant-numeric:tabular-nums;word-break:break-word}
+.muted{color:var(--muted)}.small{font-size:12px}
+.empty{color:var(--muted);padding:18px;text-align:center;border:1px dashed var(--line);border-radius:8px}
+.err{color:var(--bad)}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td.n{font-variant-numeric:tabular-nums;text-align:right}
+#videos,#jobs,#mediaList,#researchBody{overflow-x:auto}
+td{overflow-wrap:anywhere}
+.tier{border-left:3px solid var(--line);padding:4px 8px;margin:6px 0}
+.tier.exp{border-color:var(--warn)}.tier.cond{border-color:var(--off)}.tier.nv{border-color:var(--bad)}
+.tier h4{margin:0 0 4px;font-size:12px}
+.vis{display:flex;height:12px;border-radius:3px;overflow:hidden;background:#020711;border:1px solid var(--line)}
+.vis span{flex:1}
+.research{display:none}
+body.research-mode .research{display:block}
+body.research-mode .coach-only{display:none}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:20;padding:16px}
+.modal.on{display:flex}
+.modal .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;width:min(1000px,100%);max-height:100%;overflow:auto}
+.modal video{width:100%;background:#000;border-radius:8px;display:block}
+.progress{height:8px;background:#020711;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.progress span{display:block;height:100%;background:var(--acc)}
+[title]{text-decoration-style:dotted}
+.stack{display:flex;flex-direction:column;gap:6px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+code{background:#020711;padding:1px 5px;border-radius:4px;font-size:12px}

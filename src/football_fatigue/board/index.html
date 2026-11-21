@@ -331,6 +331,9 @@
     }
 
     #pitch-canvas { border-radius: 4px; box-shadow: 0 0 40px rgba(0,0,0,.6); display: block; }
+    .pitch-tools { position:absolute; top:8px; left:8px; display:flex; gap:6px; z-index:3; }
+    .pitch-tool { border:1px solid rgba(255,255,255,.25); border-radius:5px; padding:5px 8px; color:#fff; background:rgba(9,13,22,.82); font:10px var(--font); cursor:pointer; }
+    .pitch-tool.active { border-color:var(--accent2); background:rgba(37,99,235,.88); }
 
     /* Right Panel: Detail & Analytics */
     #right-panel {
@@ -744,6 +747,7 @@
       <svg style="width:12px;height:12px;fill:currentColor" viewBox="0 0 24 24"><path d="M19 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H19v-2z"/></svg>
       Switch Match
     </button>
+    <a id="btn-download-report" class="header-btn" href="/api/report.csv" title="Download derived movement and spatial analytics as CSV">Download report</a>
 
     <div id="header-right">
       <div id="policy-badge">—</div>
@@ -793,6 +797,11 @@
 
     <div style="position:relative">
       <canvas id="pitch-canvas"></canvas>
+      <div class="pitch-tools">
+        <button id="btn-heatmap" class="pitch-tool" type="button">Heatmap</button>
+        <button id="btn-team-shape" class="pitch-tool" type="button">Team shape</button>
+        <span title="Heatmap cells show usable player position observations, not dwell time.">Observation counts</span>
+      </div>
       <div id="gap-banner">⚠ Frame gap / period break</div>
     </div>
   </main>
@@ -880,6 +889,9 @@ let META          = null;
 let FRAMES        = [];
 let EVENTS        = [];
 let ANALYTICS     = {};
+let SPATIAL       = {};
+let SHOW_HEATMAP  = false;
+let SHOW_TEAM_SHAPE = false;
 let EV_FILTER     = 'ALL';
 let SELECTED_PLAYER = null;
 
@@ -1025,6 +1037,62 @@ function drawBall(ball) {
   ctx.strokeStyle = '#92400e'; ctx.lineWidth = 1.5; ctx.stroke();
 }
 
+function drawObservationHeatmap() {
+  const heatmap = SPATIAL?.heatmap;
+  if (!heatmap?.counts) return;
+  const maxCount = Math.max(0, ...Object.values(heatmap.counts).flat(2));
+  if (maxCount === 0) return;
+  const cellW = canvas.width / heatmap.columns;
+  const cellH = canvas.height / heatmap.rows;
+  for (const [side, matrix] of Object.entries(heatmap.counts)) {
+    const color = side === 'home' ? [34, 211, 238] : [249, 115, 22];
+    matrix.forEach((line, row) => line.forEach((count, col) => {
+      if (!count) return;
+      const alpha = 0.08 + 0.48 * Math.log1p(count) / Math.log1p(maxCount);
+      ctx.fillStyle = `rgba(${color[0]},${color[1]},${color[2]},${alpha})`;
+      ctx.fillRect(col * cellW, row * cellH, cellW, cellH);
+    }));
+  }
+}
+
+function drawTeamShape(frame) {
+  for (const side of ['home', 'away']) {
+    const team = (frame.players || []).filter(p => p.side === side && Number.isFinite(p.x) && Number.isFinite(p.y));
+    if (!team.length) continue;
+    const xs = team.map(p => p.x), ys = team.map(p => p.y);
+    const item = {
+      side,
+      centroid_x_m: xs.reduce((a, b) => a + b, 0) / team.length,
+      centroid_y_m: ys.reduce((a, b) => a + b, 0) / team.length,
+      length_span_m: Math.max(...xs) - Math.min(...xs),
+      width_span_m: Math.max(...ys) - Math.min(...ys),
+      observed_player_count: team.length,
+      estimated_player_count: team.filter(p => p.estimated).length,
+    };
+    const color = side === 'home' ? HOME_COLOR : AWAY_COLOR;
+    const [left, top] = toCanvas(
+      item.centroid_x_m - item.length_span_m / 2,
+      item.centroid_y_m + item.width_span_m / 2,
+    );
+    const [right, bottom] = toCanvas(
+      item.centroid_x_m + item.length_span_m / 2,
+      item.centroid_y_m - item.width_span_m / 2,
+    );
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.setLineDash([5, 3]);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(left, top, right - left, bottom - top);
+    ctx.setLineDash([]);
+    const [cx, cy] = toCanvas(item.centroid_x_m, item.centroid_y_m);
+    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '10px var(--font)';
+    ctx.fillText(`${item.side} centroid · ${item.observed_player_count} observed (${item.estimated_player_count} estimated)`, left + 4, Math.max(12, top - 4));
+    ctx.restore();
+  }
+}
+
 // ── Render pass ───────────────────────────────────────────────────────────────
 function render() {
   if (!META || FRAMES.length === 0) return;
@@ -1032,6 +1100,8 @@ function render() {
   if (!frame) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawPitch();
+  if (SHOW_HEATMAP) drawObservationHeatmap();
+  if (SHOW_TEAM_SHAPE) drawTeamShape(frame);
   frame.players.forEach(drawPlayer);
   if (frame.ball) drawBall(frame.ball);
   updateHUD(frame);
@@ -1381,6 +1451,17 @@ document.getElementById('btn-step-fwd').addEventListener('click',  () => { pause
 document.getElementById('btn-prev-ev').addEventListener('click', goPrevEvent);
 document.getElementById('btn-next-ev').addEventListener('click', goNextEvent);
 
+document.getElementById('btn-heatmap').addEventListener('click', e => {
+  SHOW_HEATMAP = !SHOW_HEATMAP;
+  e.currentTarget.classList.toggle('active', SHOW_HEATMAP);
+  render();
+});
+document.getElementById('btn-team-shape').addEventListener('click', e => {
+  SHOW_TEAM_SHAPE = !SHOW_TEAM_SHAPE;
+  e.currentTarget.classList.toggle('active', SHOW_TEAM_SHAPE);
+  render();
+});
+
 document.getElementById('speed-select').addEventListener('change', e => {
   PB.speed = parseFloat(e.target.value);
 });
@@ -1583,6 +1664,11 @@ async function loadData() {
       ANALYTICS = await fetchJSON('/api/analytics');
     } catch (e) {
       ANALYTICS = {};
+    }
+    try {
+      SPATIAL = await fetchJSON('/api/spatial');
+    } catch (e) {
+      SPATIAL = {};
     }
 
     PB.idx = 0;

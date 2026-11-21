@@ -12,7 +12,11 @@ Scope: Task 2, Software Architecture & Tactical Board Streaming. Rules live in [
 
 **Also implemented (Milestone 2C, pending independent review):** `football_fatigue.match_data`, the single downstream entry point over ingestion and synchronization, with explicit coordinate states, an explicit coordinate policy, and usability indicators that do not claim physical validation. It also provides explicit quality summaries and the consumer-facing frame representation that tactical playback should use ([team_handoff.md](team_handoff.md)); it streams tracking frames with bounded memory and never assumes continuous frame coverage.
 
-**Planned (not implemented):** checksum/provenance manifests, preprocessing, synchronization, analytics, playback, and the tactical board. The inventory proves only that files exist; it does not check that an ID in a file name matches the file's content. No data contract is finalized: the Milestone 1B audit documented the schemas, frame rate, units, coordinate system, and clocks (see [dataset_schema_audit.md](dataset_schema_audit.md)) and proposes provisional contracts in [data_contracts.md](data_contracts.md), pending independent review. No frontend framework or transport (file, API, streaming) has been chosen.
+**Also implemented:** movement analytics, playback, and a separate experimental video pipeline in `football_fatigue.vision`. The video pipeline includes object detection via a caller-supplied Ultralytics model, ByteTrack or a visible IoU fallback, manual homography calibration, team-color clustering with explicit home mapping, estimated player footpoint coordinates, and a JSONL CLI with run provenance. The CV module is not validated on real footage; no project-data model training or fine-tuning has been done. See [vision_module.md](vision_module.md).
+
+**Also implemented (descriptive movement analytics extension):** `football_fatigue.analytics.spatial` provides opt-in median coordinate smoothing with gap/period segmentation, usable-position observation heatmaps, one-second sampled team-shape summaries, and adjacent five-minute per-player positional changes. The tactical board shows an observation-count heatmap (not dwell time), current-frame team centroids/spans with observed/estimated counts, and exports CSV summaries. These outputs describe tracked locations; they do not infer tactical value, fatigue, or intent. **PC, EPV, OBSO, and DAS remain unimplemented** until their project-specific definitions, equations, source fields, and validation criteria are supplied. Event recognition and VAEP/OBV remain later work.
+
+**Still planned or incomplete:** source-dataset checksum/provenance manifests, preprocessing, and real-footage validation of the CV pipeline. The inventory proves only that files exist; it does not check that an ID in a file name matches the file's content. No data contract is finalized: the Milestone 1B audit documented the schemas, frame rate, units, coordinate system, and clocks (see [dataset_schema_audit.md](dataset_schema_audit.md)) and proposes provisional contracts in [data_contracts.md](data_contracts.md), pending independent review.
 
 ## Data flow (planned)
 
@@ -33,7 +37,7 @@ flowchart LR
 
 Solid boxes are the planned Task 2 path. Raw data flows only one way; nothing writes back to `data/raw`.
 
-## Components (discovery and inventory is implemented at file level; all others are planned)
+## Components
 
 | Component | Responsibility | Must not |
 | --- | --- | --- |
@@ -42,7 +46,7 @@ Solid boxes are the planned Task 2 path. Raw data flows only one way; nothing wr
 | Validation | Verify structure, identifiers, periods, timestamps, frequency, units, coordinates, completeness; produce a findings report | Silently repair invalid input |
 | Preprocessing | Produce documented derived representations in an optimized storage format (format not yet chosen) | Modify originals; hide missingness |
 | Synchronization | Build explicit, documented tracking-to-event time mappings, handling periods and stoppages | Assume identical clocks or period conventions |
-| Analytics | Documented movement metrics (distance, speed, acceleration, workload indicators) from validated inputs, with stated assumptions and uncertainty | Label tracking-derived metrics as physiological fatigue |
+| Analytics | Documented movement metrics (distance, speed, acceleration, workload indicators), plus descriptive spatial summaries from usable positions, with stated assumptions and uncertainty | Label tracking-derived metrics as physiological fatigue or infer tactical value without specified definitions |
 | Playback | Time-indexed access to positions and events: play/pause, seek, speed, event jumps | Parse raw files; embed analytics |
 | Tactical board | 2D rendering of players and ball, consuming the playback interface | Own ingestion logic |
 
@@ -56,14 +60,16 @@ Entry points take a match ID and a data root. Match `3812` is the initial develo
 
 Before synchronization, verify time units, period resets, stoppages, timestamp origins, event precision, and tracking coverage. Before distances, speeds, or rendering, verify coordinate units, pitch dimensions, origin, axes, and attacking direction by period. Document every transformation and retain links to the original time and position values.
 
-## Future extension points (not implemented, no code or stubs)
+## Future extension points
 
-- **Video detection/tracking, ball trajectory analysis, out-of-frame position estimation:** would add a new ingestion source and its own time mapping into synchronization. No video exists today.
+- **Video detection/tracking:** an experimental fixed-camera pipeline exists in `football_fatigue.vision`; it has not been validated against ground truth. Ball 3D trajectory and out-of-frame position estimation remain future work and need independent methods and validation.
 - **Wearable and physiological data:** separate validated ingestion plus subject and time alignment; the prerequisite for any genuine fatigue indicator.
 - **Fatigue prediction, injury-risk research, genetics:** separate research scopes consuming validated outputs, with leakage-safe splits and stated limits.
 
 Keep domain logic independent of transport and UI choices so a frontend can be selected later without touching ingestion or analytics.
 
-## Next gate
+## Next gates
 
-After authorization (Milestone 1): inventory actual files across matches, record provenance and checksums, inspect schemas starting with match 3812 and cross-check others, document match/global relationships and unknowns. Only then approve an ingestion design and data tests.
+- **Spatial analytics:** use a licensed real video/tracking sample to review the prepared coordinates and board outputs; validate units, coordinate convention, and missingness before interpreting movement values.
+- **Tactical metrics:** provide the project's definitions and equations for PC, EPV, OBSO, and DAS, plus required inputs and validation criteria. Do not substitute generic interpretations for project-specific definitions.
+- **Vision:** run a short legally accessible annotated clip using the procedure in [vision_module.md](vision_module.md), then report detector/tracker and projected-position metrics against its paired ground truth. Do not present successful processing as accuracy validation.

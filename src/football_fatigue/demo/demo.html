@@ -1,0 +1,948 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Football Vision Demo — Match Analysis</title>
+<style>
+:root{color-scheme:dark;--bg:#060d17;--panel:#0d1828;--panel2:#0a1422;--line:#1f3550;--muted:#8ea3bb;--ink:#eaf2fc;--soft:#c7d5e6;
+  --blue:#3b82f6;--white:#f1f5f9;--ok:#22c55e;--prov:#f59e0b;--unk:#94a3b8;--amb:#ef4444;--acc:#38bdf8;--warn:#fcd34d}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 Inter,system-ui,"Segoe UI",sans-serif}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line);background:#081220;position:sticky;top:0;z-index:20}
+h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.01em}h1 span{color:var(--muted);font-weight:500}
+.badge{border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--muted);font-size:11px;white-space:nowrap}
+.badge.warn{border-color:#8a6a12;color:var(--warn)}.badge.bad{border-color:#b91c1c;color:#fca5a5}
+.tabs{display:flex;gap:2px;background:#0b1626;border:1px solid var(--line);border-radius:8px;padding:2px;margin-left:auto}
+.tabs button{border:0;background:transparent}.tabs button.on{background:#1c3d66}
+main{padding:12px 16px;display:grid;gap:12px;max-width:1900px;margin:0 auto}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0}
+.ph{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;margin:0 0 8px}
+.ph h2{font-size:13px;margin:0;font-weight:650;color:var(--soft);letter-spacing:.02em}
+.sub{color:var(--muted);font-size:11.5px}
+button,select{background:#13263f;color:#dcebfb;border:1px solid var(--line);border-radius:7px;padding:4px 9px;cursor:pointer;font:inherit;font-size:12px}
+button.on{background:#1d4e80;border-color:var(--acc);color:#fff}button:hover{filter:brightness(1.15)}button:disabled{opacity:.4;cursor:default}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.seg button{border:0;border-radius:0;border-right:1px solid var(--line)}.seg button:last-child{border-right:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.grow{flex:1}
+label.chk{display:inline-flex;gap:5px;align-items:center;color:var(--soft);cursor:pointer;font-size:12px;white-space:nowrap}
+.tool{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:6px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;margin-bottom:8px}
+.tool .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+#top{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:12px;align-items:start}
+#mid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1.1fr) minmax(0,.9fr);gap:12px;align-items:start}
+#stage{position:relative;width:100%;height:clamp(240px,34vh,420px);background:#000;overflow:hidden;border-radius:9px;cursor:crosshair}
+#vid{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}#ov{position:absolute;inset:0;width:100%;height:100%}
+#novideo{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;color:#fca5a5;padding:20px;background:rgba(0,0,0,.6)}
+#seeking{position:absolute;right:10px;top:8px;background:#000a;padding:2px 8px;border-radius:6px;display:none;color:var(--warn)}
+.transport{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.time{font-variant-numeric:tabular-nums;font-size:15px;font-weight:650;margin-left:4px}
+#tl{width:100%;height:44px;display:block;cursor:pointer;border-radius:7px;background:#08111d;margin-top:8px}
+#boardPanel{position:relative}#boardPanel:fullscreen{padding:16px;overflow:auto;background:var(--bg)}
+#board{width:100%;height:auto;display:block;border-radius:9px;cursor:pointer;background:#0b3320}
+#boardPanel:fullscreen #board{max-height:calc(100vh - 230px);width:auto;max-width:100%;margin:0 auto}
+#tip{position:absolute;pointer-events:none;background:#020817f0;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;display:none;z-index:5;max-width:260px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;color:var(--soft);font-size:11.5px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:5px;vertical-align:-2px}
+.note{color:var(--warn);font-size:11.5px;margin-top:6px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.tcard{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tcard h3{margin:0 0 6px;font-size:13px;display:flex;align-items:center;gap:6px}.tcard h3 i{width:12px;height:12px;border-radius:50%;display:inline-block}
+.m{display:flex;justify-content:space-between;gap:8px;padding:2px 0;border-bottom:1px dashed #1a2c44}.m:last-child{border:0}
+.m b{font-weight:500;color:var(--muted)}.m span{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+.bar{display:flex;height:16px;border-radius:5px;overflow:hidden;margin:3px 0;font-size:10px;line-height:16px;text-align:center;color:#0b1220;font-weight:700}
+.tip{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;border:1px solid #33506f;color:var(--muted);font-size:10px;cursor:help;position:relative;flex:none}
+.tip:hover::after{content:attr(data-tip);position:absolute;left:50%;top:18px;transform:translateX(-50%);width:270px;background:#020817;border:1px solid var(--line);border-radius:8px;padding:7px 9px;color:var(--soft);font-size:11.5px;line-height:1.4;z-index:30;white-space:normal;font-weight:400;text-align:left}
+.chip{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:600;border:1px solid}
+.chip.obs{color:#86efac;border-color:#166534}.chip.est{color:#fde68a;border-color:#854d0e}.chip.lost{color:#cbd5e1;border-color:#475569}.chip.app{color:#93c5fd;border-color:#1e40af}.chip.no{color:#fca5a5;border-color:#991b1b}.chip.sim{color:#f0abfc;border-color:#86198f}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px}.kv b{color:var(--muted);font-weight:500}
+ul.ins{margin:0;padding-left:16px}ul.ins li{margin:4px 0;color:var(--soft)}ul.ins li small{color:var(--muted)}
+#ana{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:start}
+.cv{width:100%;height:auto;display:block;border-radius:8px}
+table.gates{width:100%;border-collapse:collapse;font-size:12px}table.gates td,table.gates th{border-bottom:1px solid #1a2c44;padding:4px 6px;text-align:left;vertical-align:top}table.gates th{color:var(--muted);font-weight:500}
+.adv{display:none}body.advanced .adv{display:grid}body.advanced .adv.block{display:block}
+.pres-only{display:none}body.presentation .pres-only{display:block}body.presentation .no-pres{display:none!important}
+#pCount{font-variant-numeric:tabular-nums;font-size:15px;font-weight:650}#pValid{grid-template-columns:auto 1fr;margin-top:2px}
+#advGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}#advGrid .kv{grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)}
+details summary{cursor:pointer;color:var(--muted)}#lim li{margin:3px 0;color:#cbd5e1}
+#physGrid,#revGrid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.3fr);gap:12px;align-items:start}
+.pf{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin-top:6px}.pf label{display:flex;justify-content:space-between;gap:6px;align-items:center;color:var(--soft);font-size:11.5px}
+input{background:#0b1626;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font:inherit;font-size:12px}.pf input,.pf select{width:76px}input.num{width:70px}#pPreset{max-width:100%;min-width:0}
+@media(max-width:1250px){#top,#mid{grid-template-columns:1fr}#ana{grid-template-columns:repeat(2,minmax(0,1fr))}#advGrid{grid-template-columns:1fr}#physGrid,#revGrid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:700px){#ana{grid-template-columns:1fr}.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Football Vision <span id="bMatch">· loading…</span></h1>
+  <span class="badge warn" id="bSpace">APPROXIMATE PITCH POSITIONS</span>
+  <span class="badge warn">DEVELOPMENT MATCH</span>
+  <span class="badge" id="bVideo"></span>
+  <div class="tabs"><button id="tabCoach" class="on">Coach view</button><button id="tabAdv" class="no-pres">Advanced / diagnostics</button></div>
+  <button id="tabPres" title="Opt-in presentation mode: one 40 s clip, team colours and local track labels only; physical and identity tools hidden">Presentation mode</button>
+</header>
+<main>
+<section class="panel pres-only" id="presStrip">
+  <div class="ph"><h2>Presentation clip <span class="sub" id="pClip"></span></h2>
+    <div class="row"><span id="pCount"></span><span class="chip no" id="pWarn" style="display:none"></span>
+      <span class="tip" data-tip="People in the current frame: observed positions (not estimated), not more than 5 m outside the pitch, players and goalkeepers only (official candidates and unknown roles excluded), grouped by the team colour shown on screen. Grey = team unclear. A team has at most 11 on the pitch, so a count above 11 means the colour grouping is wrong in this frame.">?</span></div></div>
+  <div class="kv" id="pValid"></div>
+  <div class="note" id="pDisclose"></div>
+</section>
+<div id="top">
+  <section class="panel">
+    <div class="ph"><h2>Match video <span class="sub">· saved detections and tracks, replayed on the video's own clock</span></h2>
+      <div class="row"><div class="seg"><button data-zoom="1" class="on">Fit</button><button data-zoom="2">2×</button><button data-zoom="4">4×</button></div>
+        <label class="chk"><input type="checkbox" id="follow"> follow selected</label></div></div>
+    <div id="stage"><video id="vid" muted playsinline preload="auto"></video><canvas id="ov"></canvas>
+      <div id="seeking">seeking…</div>
+      <div id="novideo"><div><b>Source video not available.</b><br>Detections and the board run on a stand-in clock (no video pixels).<br><span id="novideoMsg"></span></div></div></div>
+    <div class="transport">
+      <button id="play" title="Space">▶ Play</button><button id="b25" title="Shift+←">−1 s</button><button id="b1" title="←">−1f</button><button id="f1" title="→">+1f</button><button id="f25" title="Shift+→">+1 s</button>
+      <select id="speed" title="playback speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
+      <span class="time" id="clock">0:00.00</span><span class="sub" id="clockInfo"></span><span class="grow"></span>
+      <label class="chk"><input type="checkbox" id="oBoxes" checked> boxes</label><label class="chk"><input type="checkbox" id="oLabels" checked> labels</label>
+      <label class="chk" title="Reprojected pitch markings and calibration keypoints (colour = held-out error)"><input type="checkbox" id="oCal"> calibration lines</label>
+    </div>
+    <canvas id="tl" title="Timeline — click or drag to seek. Bars: share of trusted (green) / hypothesis (amber) / untrusted (grey) identities; white line: people detected"></canvas>
+  </section>
+
+  <section class="panel" id="boardPanel">
+    <div class="ph"><h2 id="boardTitle">Tactical board</h2>
+      <div class="row"><span class="tip" data-tip="Each marker is a detected person at their foot position, mapped onto a 105 × 68 m pitch with an approximate calibration of this match (typical error about 0.5 m, 1 m for 1 in 10 points, larger far from the calibration landmarks). Good for shape and zones; not precise enough for speed or distance.">?</span>
+        <button id="expand" title="Expand the board to full screen">⛶ Expand</button><button id="reset" title="Reset zoom, filters and selection">Reset view</button><button id="clearSel">Clear selection</button></div></div>
+    <div class="tool">
+      <span class="lbl">Team</span><div class="seg" id="teamBtns"><button data-team="all" class="on">Both</button><button data-team="0">Blue</button><button data-team="1">White</button></div>
+      <span class="lbl">People</span><select id="roleSel"><option value="all">Everyone detected</option><option value="active">Players + goalkeepers</option><option value="1">Goalkeepers</option><option value="2">Officials</option><option value="3">Unknown role</option></select>
+    </div>
+    <div class="tool">
+      <span class="lbl no-pres">Labels</span><div class="seg no-pres"><button id="idDisplay" class="on" title="Stable shirt-style number (= tracker number); does not prove identity">Number</button><button id="idLocal" title="Tracker ID as produced by the tracker">Tracker ID</button><button id="idGlobal" title="Identity hypothesis across the clip: G7 = trusted, G7? = hypothesis, ? = not trusted">Identity</button><button id="idReviewed" title="Identity confirmed by a human reviewer (R:name); everyone else shows #tracker number">Reviewed</button></div>
+      <label class="chk" title="Fill short tracking gaps (≤ 1 s) with estimated, dashed markers; fade a lost player for 0.24 s. Display only — never measured."><input type="checkbox" id="oEst" checked> estimated positions</label>
+      <label class="chk" title="Light smoothing of the drawn marker (5-frame average, median shift 0.11 m). Data is unchanged."><input type="checkbox" id="oSmooth" checked> smooth movement</label>
+      <label class="chk"><input type="checkbox" id="oTrail" checked> trails (<span id="oTrailTxt">2 s</span>)</label>
+      <label class="chk no-pres" title="Show only people whose identity is currently trusted"><input type="checkbox" id="oConf"> trusted identities only</label>
+      <label class="chk" title="Switch to the image-space layout (no calibration)"><input type="checkbox" id="oImage"> image layout</label>
+    </div>
+    <canvas id="board" width="1110" height="740"></canvas><div id="tip"></div>
+    <div class="legend" id="legend">
+      <span><i style="background:var(--blue)"></i>Blue team</span><span><i style="background:var(--white)"></i>White team</span><span><i style="background:#64748b"></i>team unclear</span>
+      <span><i style="background:#fb923c"></i>official (candidate)</span><span><i style="background:transparent;border:2px dashed #fde68a"></i>estimated</span><span><i style="background:transparent;border:2px dotted #94a3b8"></i>lost (fading)</span>
+      <span class="no-pres"><i style="background:transparent;border:3px solid #22c55e"></i>identity trusted</span><span class="no-pres"><i style="background:transparent;border:3px dashed #f59e0b"></i>hypothesis</span><span class="no-pres"><i style="background:transparent;border:3px dotted #94a3b8"></i>not trusted</span>
+      <span class="pres-only"><b>T25</b> = local track. Track numbers are local to the tracker and can restart; they are not player identities.</span>
+    </div>
+    <div class="sub" id="boardInfo" style="margin-top:4px"></div>
+    <div class="note" id="noteImage" style="display:none">Image layout: APPROXIMATE · NON-METRIC. Origin: top-left of the video frame · units: pixels, normalised to this schematic · projection: none. No distance, speed or workload can be read from it.</div>
+    <div class="note" id="notePitch"></div>
+  </section>
+</div>
+
+<div id="mid">
+  <section class="panel"><div class="ph"><h2>Team overview <span class="sub" id="ovWin"></span></h2><span class="tip" data-tip="Computed from the players actually visible and confidently assigned to a team (observed positions only, on the pitch). Not the full 11: on average only part of each team is detected. Width = spread across the pitch, length = spread along it, compactness = average distance to the team's centre, spacing = average distance to the nearest teammate.">?</span></div>
+    <div class="cards" id="teamCards"></div>
+    <div class="sub" id="dirNote" style="margin-top:6px"></div></section>
+  <section class="panel"><div class="ph"><h2>Selected player</h2><span class="tip" data-tip="Player insights use one continuous tracking segment only (no gaps, no identity changes), so different people are never joined. Positions are approximate; no speed or distance is shown.">?</span></div>
+    <div id="sel" class="sub">Click a player on the board or in the video.</div>
+    <div id="selMore" style="display:none">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin-top:6px">
+        <div><div class="sub">Positions in this segment</div><canvas id="selMap" class="cv" width="420" height="272"></canvas></div>
+        <div id="selStats"></div></div>
+      <div class="sub" style="margin-top:6px">Tracking & identity over the whole clip — colour = identity status, gap = not detected, pale = estimated, ▲ segment boundary, green underline = segment safe to attribute. Click to jump.</div>
+      <canvas id="idtl" style="width:100%;height:44px;display:block;cursor:pointer;background:#08111d;border-radius:7px"></canvas>
+    </div></section>
+  <section class="panel"><div class="ph"><h2>Match insights</h2><span class="tip" data-tip="Statements generated from the numbers on this page for the selected time window, with the number of observations behind them. They describe the visible players only.">?</span></div>
+    <ul class="ins" id="insights"></ul></section>
+</div>
+
+<section class="panel">
+  <div class="ph"><h2>Team analytics</h2>
+    <div class="row"><span class="sub">time window</span><select id="anaWin"><option value="all">Whole clip</option><option value="1500">Last 60 s</option><option value="375">Last 15 s</option></select>
+      <span class="sub">heatmap</span><div class="seg"><button id="hmDensity" class="on">Density</button><button id="hmZones">Zones</button></div></div></div>
+  <div id="ana">
+    <div><div class="row"><b>Blue — where the visible players were</b><span class="tip" data-tip="Share of observed, on-pitch Blue positions in each area over the window. Darker = more time. Visible players only.">?</span></div><canvas id="hm0" class="cv" width="440" height="290"></canvas></div>
+    <div><div class="row"><b>White — where the visible players were</b><span class="tip" data-tip="Same as Blue, for the White team.">?</span></div><canvas id="hm1" class="cv" width="440" height="290"></canvas></div>
+    <div><div class="row"><b>Average positions</b><span class="tip" data-tip="Mean position of each tracker ID that was visible for at least 40 % of the window, with each team's outline. Tracker continuity is not verified identity; very long windows mix positions from different phases.">?</span></div><canvas id="form" class="cv" width="440" height="290"></canvas><div class="sub" id="formInfo"></div></div>
+    <div><div class="row"><b>Team width & length over time</b><span class="tip" data-tip="5-second median of the visible team's width (solid) and length (dashed) across the whole clip; the shaded band is the selected window and the blue line the current moment. Gaps = fewer than 4 visible players.">?</span></div><canvas id="shape" class="cv" width="440" height="290"></canvas><div class="sub">solid = width · dashed = length · Blue / White</div></div>
+  </div>
+</section>
+
+<section class="panel no-pres" id="physPanel">
+  <div class="ph"><h2>Physical analytics <span class="sub">· your own definitions · observed tracking segments only · nothing extrapolated</span></h2>
+    <div class="row"><span class="sub">scope</span><select id="pScope"><option value="player">Selected player</option><option value="0">Blue team</option><option value="1">White team</option><option value="all">Everyone</option></select>
+      <span class="sub">window</span><select id="pWin"><option value="all">Whole clip</option><option value="ana">Team-analytics window</option><option value="custom">Custom (s)</option></select>
+      <input id="pT0" class="num" type="number" min="0" step="1" placeholder="from" style="display:none"><input id="pT1" class="num" type="number" min="0" step="1" placeholder="to" style="display:none">
+      <span class="sub">positions</span><select id="pPos" title="M7.3 opt-in: 'continuous mapping' removes the 0.25 m grid snap of the stored positions (same calibration). The plausibility check is run again for each choice."><option value="stored">stored</option><option value="h1">continuous (M7.3)</option></select>
+      <button id="pRun" class="on">Recalculate</button><span class="tip" data-tip="Every threshold is a coach-selected definition, not a validated standard. The same settings always give the same result. Only observed positions on the pitch, inside the calibrated area, in one continuous tracking segment of a player or goalkeeper are used; estimated positions, gaps, officials, staff and pixel coordinates never are.">?</span></div></div>
+  <div id="physGrid">
+    <div><div class="row"><b>Definitions</b><select id="pPreset"></select></div>
+      <div id="pFields" class="pf"></div>
+      <div class="row" style="margin-top:6px"><input id="pName" placeholder="preset name" style="width:140px"><button id="pSave">Save preset</button><button id="pDefaults">Reset to example A</button></div>
+      <div id="pErr" class="note"></div><div class="sub" id="pPresetNote"></div></div>
+    <div><div id="pBanner"></div><div id="pSummary" class="kv" style="margin-top:6px"></div>
+      <canvas id="pSpeed" class="cv" width="640" height="200" style="margin-top:8px;display:none"></canvas><div class="sub" id="pSpeedNote"></div>
+      <div id="pSprints" class="sub"></div></div>
+  </div>
+  <div style="max-height:260px;overflow:auto;margin-top:8px"><table class="gates" id="pTable"></table></div>
+  <div class="row" style="margin-top:8px"><span class="sub">export</span><button id="pExpJson">Summary (JSON)</button><button id="pExpCsv">Segment &amp; sprint table (CSV)</button><button id="pExpPreset">Definitions preset (JSON)</button><button id="pExpQuality">Data-quality report (JSON)</button>
+    <label class="chk adv block"><input type="checkbox" id="pDiag"> show diagnostic values (NOT VALID — for engineers)</label></div>
+  <table class="gates" id="gates" style="margin-top:8px"></table>
+</section>
+
+<section class="panel no-pres" id="revPanel">
+  <div class="ph"><h2>Identity review <span class="sub">· human annotations, stored separately · never change the tracking output · not validation evidence</span></h2>
+    <div class="row"><span class="sub">reviewer</span><input id="rWho" placeholder="your name" style="width:120px"></div></div>
+  <div id="revGrid">
+    <div><div id="rSel" class="sub">Select a player to review their tracking segments.</div><div id="rSegs" style="max-height:150px;overflow:auto"></div>
+      <div class="row" style="margin-top:6px"><input id="rIdent" placeholder="identity, e.g. Blue 7" style="width:140px"><button id="rConfirm">Confirm as this person</button><button id="rUnknown">Mark unknown</button>
+        <button id="rReject">Reject association</button><button id="rSplit">Split at current frame</button></div>
+      <div class="row" style="margin-top:6px"><input id="rFrom" placeholder="merge identity" style="width:110px"><span class="sub">into</span><input id="rInto" placeholder="identity" style="width:110px">
+        <label class="chk"><input type="checkbox" id="rExplicit"> I reviewed both</label><button id="rMerge">Merge</button><button id="rUndo">Undo last</button></div>
+      <div id="rErr" class="note"></div>
+      <div style="margin-top:8px"><b>Suggested hand-overs</b> <span class="sub" id="hoNote"></span><span class="tip" data-tip="Short gaps where one tracking chain ends and another starts. The model's opinion is shown but never applied. Look before / after in the video, then record your decision; an accepted hand-over is an annotation, not validation evidence. To use it for totals, also confirm both segments with the same identity.">?</span>
+        <div id="hoList" style="max-height:170px;overflow:auto;font-size:11.5px"></div></div></div>
+    <div><b>Review log</b><div id="rState" class="sub"></div><div id="rLog" style="max-height:190px;overflow:auto;font-size:11.5px"></div></div>
+  </div>
+</section>
+
+<section class="panel adv block no-pres" id="advPanel">
+  <div class="ph"><h2>Advanced diagnostics</h2><span class="sub">identity, tracking continuity, calibration, readiness — <a href="/m7" style="color:var(--acc)">previous dashboard layout</a></span></div>
+  <div id="advGrid" class="adv">
+    <div><b>Identity status of observed boxes</b><div id="advId" class="kv" style="margin-top:6px"></div><canvas id="hist" width="520" height="90" style="width:100%;margin-top:6px"></canvas><div class="sub">identity-confidence distribution by status (20 bins, 0→1)</div>
+      <div style="margin-top:8px"><b>This frame</b><div id="advFrame" class="kv" style="margin-top:4px"></div></div></div>
+    <div><b>Display continuity (M7.1)</b><div id="advCont" class="kv" style="margin-top:6px"></div></div>
+    <div><b>Calibration</b><div id="advCal" class="kv" style="margin-top:6px"></div>
+      <details style="margin-top:8px"><summary>Limitations (read before presenting)</summary><ul id="lim"></ul></details></div>
+  </div>
+</section>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const S={ov:null,frame:0,sel:null,idMode:"display",zoom:1,vx:0,seeking:false,playing:false,rendered:-1,log:[],haveVideo:false,clockT:0,clockRef:0,nFrames:0,team:"all",role:"all",hm:"density"};
+const COL={confirmed:"#22c55e",provisional:"#f59e0b",unknown:"#94a3b8",ambiguous:"#ef4444"};
+const LEVCOL=["#22c55e","#f59e0b","#94a3b8"],LEVDASH=[[],[7,4],[2,4]],LEVNAME=["trusted","hypothesis","not trusted"];
+const TEAMCOL=["#3b82f6","#f1f5f9"],TEAMNAME=["Blue","White"],ROLENAME=["player","goalkeeper","official (candidate)","unknown role"];
+const PM=30,PS=10,MINVIS=4,FPS_OK=25;
+let C=null,off=null,byLocal=null,frameOfBox=null,posInLocal=null,TS=null;
+const vid=$("vid"),ov=$("ov"),ctx=ov.getContext("2d"),bd=$("board"),bctx=bd.getContext("2d"),tl=$("tl"),tctx=tl.getContext("2d");
+const hasPitch=()=>!!(S.ov&&S.ov.calibration&&C&&C.pxm);
+const isEst=i=>C.est[i]===1, src=i=>C.src?C.src[i]:(C.est[i]?1:0);
+function fmt(f){const t=f/S.ov.fps,m=Math.floor(t/60),s=t-60*m;return `${m}:${s.toFixed(2).padStart(5,"0")}`}
+function fmtS(f){const t=Math.round(f/S.ov.fps),m=Math.floor(t/60);return `${m}:${String(t-60*m).padStart(2,"0")}`}
+function statusName(i){return i<0?"none":S.ov.statuses[i]}
+function lev(i){return C.dlev?C.dlev[i]:(C.st[i]>=2?2:(C.st[i]===1||C.as[i]===1?1:0))}
+function teamOf(i){const t=C.team[i];return (t===0||t===1)&&(C.tconf[i]??0)>=S.ov.team_reliable?t:-1}
+function boxesOf(f){ // rows drawn in frame f, honouring the display filters
+  const a=[];if(f<0||f>=S.nFrames)return a;
+  for(let i=off[f];i<off[f+1];i++){
+    if(isEst(i)&&!$("oEst").checked)continue;
+    if($("oConf").checked&&lev(i)!==0)continue;
+    if(S.role!=="all"&&C.role){const r=C.role[i];if(S.role==="active"?(r!==0&&r!==1):r!==+S.role)continue}
+    if(S.team!=="all"&&teamOf(i)!==+S.team)continue;
+    a.push(i);
+  }return a;}
+/* ---------- M10.1 presentation mode: opt-in (?mode=presentation&t0=140&t1=180 or the header button), off by default ---------- */
+const QS=new URLSearchParams(location.search);
+// whole-clip and windowed tracking numbers come from the saved-output audit (vision_eval/m10-demo-audit-v1, section 3); the windowed ones apply to 2:20–3:00 only
+const PRES={on:false,t0:+(QS.get("t0")??140),t1:+(QS.get("t1")??180),f0:0,f1:0,hov:null,cnt:null,hotaFull:0.37,win:{f0:3500,f1:4499,txt:"HOTA 0.69 (2:20–2:40) and 0.73 (2:40–3:00), ID switches 21 / 5"}};
+function presRange(){const n=S.nFrames,fps=S.ov.fps;let a=PRES.t0,b=PRES.t1;if(!(isFinite(a)&&isFinite(b)&&b>a&&a>=0)){a=140;b=180}PRES.t0=a;PRES.t1=b;
+  PRES.f0=Math.max(0,Math.min(n-1,Math.round(a*fps)));PRES.f1=Math.max(PRES.f0,Math.min(n-1,Math.round(b*fps)-1))}
+const clipF=f=>Math.max(PRES.f0,Math.min(PRES.f1,f));
+function presCounts(f){ // what the viewer sees in frame f: observed rows, not > 5 m off the pitch, players + goalkeepers, by the displayed team colour
+  const c=[0,0,0];for(let i=off[f];i<off[f+1];i++){if(src(i)!==0||(C.pv&&C.pv[i]===2)||(C.role&&C.role[i]>1))continue;const t=teamOf(i);c[t<0?2:t]++}return c}
+function presStatic(){
+  const cnt=[];let over=[0,0],unc=0,tot=0;for(let f=PRES.f0;f<=PRES.f1;f++){const c=presCounts(f);cnt.push(c);over[0]+=c[0]>11;over[1]+=c[1]>11;unc+=c[2];tot+=c[0]+c[1]+c[2]}
+  PRES.cnt=cnt;const nf=PRES.f1-PRES.f0+1,p=v=>Math.round(100*v/nf)+"%";PRES.over=over;PRES.unclear=tot?unc/tot:0;
+  $("pClip").textContent=`· SoccerTrack match ${S.ov.match_id} · ${fmtS(PRES.f0)}–${fmtS(PRES.f1+1)} (${(nf/S.ov.fps).toFixed(0)} s, frames ${PRES.f0}–${PRES.f1}) · loops`;
+  const cal=hasPitch()?S.ov.calibration:null,h=cal&&cal.held_out,u=cal?cal.uses:{},ok=k=>u[k]?"VALID":"NOT VALID";
+  const winOk=PRES.f0===PRES.win.f0&&PRES.f1===PRES.win.f1;
+  $("pValid").innerHTML=[
+    ["calibration",cal?`${ok("board_display")} for display · ${ok("team_shape")} for team shape · ${ok("zone_occupancy")} for zones · <b style="color:#fca5a5">${ok("distance_speed")} for speed or distance</b> (held-out landmark error ${h.loo.median_m} m typical, ${h.loo.p90_m} m for 1 in 10; ${h.loo_interior.p90_m} m inside the pitch)`:"no pitch calibration: image layout only, nothing metric"],
+    ["tracking",`local tracker tracks only (T-numbers). Whole-clip tracking quality HOTA ${PRES.hotaFull}`+(winOk?`; inside this clip ${PRES.win.txt} (short windows score higher and are not comparable with the whole clip)`:"")],
+    ["team colours",`from kit colour; ${Math.round(100*PRES.unclear)}% of counted people in this clip are "team unclear"; more than 11 Blue in ${p(over[0])} and more than 11 White in ${p(over[1])} of clip frames`],
+    ["identity","not shown. T-numbers restart after occlusions and are not player identities"],
+    ["not shown","physical metrics (calibration and tracking gates fail), identity review and hand-over tools, diagnostics"]].map(r=>`<b>${r[0]}</b><span>${r[1]}</span>`).join("");
+  $("pDisclose").textContent=`Clip selected for visual clarity. Whole-clip local tracking: HOTA ${PRES.hotaFull}; team-colour errors are larger in other parts of the match.`}
+function presFrame(f){const k=f-PRES.f0,c=PRES.cnt&&k>=0&&k<PRES.cnt.length?PRES.cnt[k]:presCounts(f);
+  $("pCount").innerHTML=`<span style="color:#93c5fd">Blue ${c[0]}</span> · White ${c[1]} · <span style="color:#94a3b8">unclear ${c[2]}</span>`;
+  const bad=[0,1].filter(t=>c[t]>11);$("pWarn").style.display=bad.length?"inline-block":"none";
+  $("pWarn").textContent=bad.length?`⚠ ${bad.map(t=>`${TEAMNAME[t]} ${c[t]}`).join(", ")} > 11: team colours are wrong in this frame`:""}
+function setPres(on){PRES.on=!!on;document.body.classList.toggle("presentation",PRES.on);$("tabPres").classList.toggle("on",PRES.on);$("oTrailTxt").textContent=PRES.on?"1 s":"2 s";
+  if(PRES.on){presRange();if(document.body.classList.contains("advanced"))setMode(false);presStatic()}
+  if(hasPitch())S.dir=PRES.on?inferDirection(PRES.f0,PRES.f1):S.dirAll;
+  try{const u=new URL(location.href);if(PRES.on){u.searchParams.set("mode","presentation");u.searchParams.set("t0",PRES.t0);u.searchParams.set("t1",PRES.t1)}else for(const k of ["mode","t0","t1"])u.searchParams.delete(k);history.replaceState(null,"",u)}catch(e){}
+  S.anaKey=null;S.anaKey2=null;if(S.rendered>=0)seekFrame(PRES.on&&(S.frame<PRES.f0||S.frame>PRES.f1)?PRES.f0:S.frame)}
+function trailPts(local,f,map,n){ // presentation trails: the same rule as trail() (one tracklet, consecutive frames, never across a gap) and never before the clip start
+  const a=byLocal.get(local),P=[];if(!a)return P;const j=lastBoxOf(local,f);if(j<0||frameOfBox[j]!==f)return P;let k=posInLocal[j],prev=null;
+  for(;k>=0&&P.length<n;k--){const i=a[k];if(src(i)===2)continue;if(prev!==null&&(C.trk[i]!==C.trk[prev]||frameOfBox[prev]-frameOfBox[i]!==1))break;
+    if(src(i)===1&&!$("oEst").checked)break;if(PRES.on&&frameOfBox[i]<PRES.f0)break;const p=map(i);if(!p)break;P.push([p[0],p[1],i]);prev=i}
+  return P}
+function fadeTrail(local,f,map,c,w,col,n){const P=trailPts(local,f,map,n);c.strokeStyle=col;c.lineWidth=w;c.lineCap="round";
+  for(let k=1;k<P.length;k++){c.globalAlpha=0.9*(1-k/n);c.beginPath();c.moveTo(P[k-1][0],P[k-1][1]);c.lineTo(P[k][0],P[k][1]);c.stroke()}c.globalAlpha=1;c.lineCap="butt"}
+function label(i){ // display label; the three ID concepts are kept separate
+  if(PRES.on)return "T"+C.local[i];
+  if(S.idMode==="display")return String(C.local[i]);
+  if(S.idMode==="local")return "L"+C.local[i];
+  if(S.idMode==="reviewed"){const r=S.rev&&C.seg[i]>=0&&S.rev.segments[String(C.seg[i])];return r&&r.status==="confirmed"?"R:"+r.identity:"#"+C.local[i]}
+  const l=lev(i);return l===2?"?":"G"+C.gid[i]+(l===0?"":"?");}
+function fillOf(i){if(C.role&&C.role[i]===2)return "#fb923c";const t=teamOf(i);return t<0?"#64748b":TEAMCOL[t]}
+
+/* ---------- master clock: the video element (or a stand-in clock when the video is unavailable) ---------- */
+function mediaTime(){return S.haveVideo?vid.currentTime:S.clockRef+(S.playing?(performance.now()-S.clockT)/1000*parseFloat($("speed").value):0)}
+/* PTS(f)=start+f/fps exactly (verified with PyAV); floor also maps mid-frame seek targets */
+function frameFromTime(t){const f=Math.floor((t-S.ov.video.start_time_s)*S.ov.fps+0.05);return Math.max(0,Math.min(S.nFrames-1,f))}
+function seekFrame(f){f=Math.max(0,Math.min(S.nFrames-1,Math.round(f)));if(PRES.on)f=clipF(f);const t=S.ov.video.start_time_s+(f+0.5)/S.ov.fps;
+  if(S.haveVideo&&Math.abs(vid.currentTime-t)<1e-4){render(f);return}
+  if(S.haveVideo){S.target=f;S.seeking=true;$("seeking").style.display="block";vid.currentTime=t}else{S.clockRef=t;S.clockT=performance.now();render(f)}}
+function onPresented(now,meta){ // requestVideoFrameCallback: exact presented media time
+  vid.requestVideoFrameCallback(onPresented);
+  const f=frameFromTime(meta.mediaTime);
+  if(S.seeking&&Math.abs(f-S.target)>1)return; // stale frame presented while a seek is in flight: ignore, the clock is the seek target
+  S.seeking=false;$("seeking").style.display="none";
+  if(PRES.on&&(f<PRES.f0||f>PRES.f1)){seekFrame(f>PRES.f1&&S.playing?PRES.f0:clipF(f));return} // presentation clip: loop at the end, never draw outside it
+  render(f,meta)}
+vid.addEventListener("seeked",()=>{S.seeking=false;$("seeking").style.display="none";render(frameFromTime(vid.currentTime))});
+vid.addEventListener("ended",()=>{S.playing=false;$("play").textContent="▶ Play"});
+/* Frame<->time mapping is PTS(f)=start+f/fps. Never trust a stored start blindly: measure the first presented frame's mediaTime
+   (seek before the first PTS; the browser presents frame 0) and use it if it disagrees with the overlay (a wrong start shifts every overlay by error*fps frames). */
+async function calibrateStart(){
+  const stored=S.ov.video.start_time_s;S.startStored=stored;S.startMeasured=null;
+  const m=await new Promise(res=>{const to=setTimeout(()=>res(null),3000);
+    vid.requestVideoFrameCallback((now,meta)=>{clearTimeout(to);res(meta.mediaTime)});vid.currentTime=0});
+  S.startMeasured=m;
+  if(m!=null&&Math.abs(m-stored)>0.004){S.ov.video.start_time_s=m;$("bVideo").textContent+=` · start offset corrected ${stored.toFixed(3)}→${m.toFixed(3)} s`;$("bVideo").className="badge warn"}
+}
+
+/* ---------- video overlay ---------- */
+function viewScale(){const w=ov.clientWidth,h=ov.clientHeight,W=S.ov.image.width_px,H=S.ov.image.height_px;
+  const fit=Math.min(w/W,h/H);const s=S.zoom===1?fit:Math.max(fit,w/W*S.zoom);return {s,w,h,W,H,fit}}
+function placeVideo(){const v=viewScale();const sw=v.W*v.s,sh=v.H*v.s;
+  const maxx=Math.max(0,sw-v.w);S.vx=Math.max(0,Math.min(maxx,S.vx));
+  const maxy=Math.max(0,sh-v.h);S.vy=Math.max(0,Math.min(maxy,S.vy||0));
+  const y0=sh<=v.h?(v.h-sh)/2:-S.vy;const tx=sw<=v.w?(v.w-sw)/2:-S.vx;
+  vid.style.width=sw+"px";vid.style.height=sh+"px";vid.style.transform=`translate(${tx}px,${y0}px)`;S.tx=tx;S.ty=y0;S.sc=v.s}
+function toScr(x,y){return [S.tx+x*S.sc,S.ty+y*S.sc]}
+function lastBoxOf(local,f){const a=byLocal.get(local);if(!a)return -1;let lo=0,hi=a.length-1,r=-1;
+  while(lo<=hi){const m=(lo+hi)>>1;if(frameOfBox[a[m]]<=f){r=m;lo=m+1}else hi=m-1}
+  return r<0?-1:a[r]}
+function lastObsOf(local,f){const a=byLocal.get(local);if(!a)return -1;let j=lastBoxOf(local,f);if(j<0)return -1;let k=posInLocal[j];while(k>=0&&src(a[k])!==0)k--;return k<0?-1:a[k]}
+function drawVideoOverlay(f){
+  const dpr=window.devicePixelRatio||1;if(ov.width!==Math.round(ov.clientWidth*dpr)){ov.width=Math.round(ov.clientWidth*dpr);ov.height=Math.round(ov.clientHeight*dpr)}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,ov.clientWidth,ov.clientHeight);
+  placeVideo();
+  if(S.follow&&S.sel!=null){const j=lastBoxOf(S.sel,f);if(j>=0){const cx=(C.x1[j]+C.x2[j])/2*S.sc,cy=(C.y1[j]+C.y2[j])/2*S.sc;S.vx=cx-ov.clientWidth/2;S.vy=cy-ov.clientHeight/2}}
+  placeVideo();
+  S.hit=[];const ids=boxesOf(f),showBoxes=$("oBoxes").checked,showLab=$("oLabels").checked;
+  if($("oCal").checked&&hasPitch())drawCalibration(ids);
+  if(PRES.on){drawPresVideo(f,ids,showBoxes,showLab);return}
+  if(S.sel!=null&&$("oTrail").checked)trail(S.sel,f,i=>toScr((C.x1[i]+C.x2[i])/2,C.y2[i]),ctx,2.5,"#38bdf8",50);
+  ctx.font="600 11px system-ui";ctx.textBaseline="bottom";
+  for(const i of ids){
+    const [x1,y1]=toScr(C.x1[i],C.y1[i]),[x2,y2]=toScr(C.x2[i],C.y2[i]);if(x2<0||x1>ov.clientWidth)continue;
+    const s=src(i),l=lev(i),sel=C.local[i]===S.sel;S.hit.push([i,x1,y1,x2,y2]);
+    const a=s?Math.max(0.25,C.dconf?C.dconf[i]:0.5):1;
+    if(showBoxes){ctx.globalAlpha=a;ctx.lineWidth=sel?3:1.5;ctx.strokeStyle=s===2?"#94a3b8":s===1?"#fde68a":LEVCOL[l];ctx.setLineDash(s?[3,3]:LEVDASH[l]);ctx.strokeRect(x1,y1,x2-x1,y2-y1);ctx.setLineDash([]);ctx.globalAlpha=1}
+    if(showLab){const t=label(i)+(s===1?" ~":s===2?" lost":"");const tc=fillOf(i);const w=ctx.measureText(t).width+12;
+      ctx.globalAlpha=a;ctx.fillStyle="#000c";ctx.fillRect(x1,y1-14,w,14);ctx.fillStyle=tc;ctx.fillRect(x1+1,y1-12,6,10);
+      ctx.fillStyle=s?"#e2e8f0":LEVCOL[l];ctx.fillText(t,x1+9,y1-1);ctx.globalAlpha=1;S.log.length<400&&S.log.push(t)}
+  }}
+function drawPresVideo(f,ids,showMk,showLab){ // M10.1: team-coloured foot ellipses, T<track> labels (selected / hovered at Fit, everyone at 2×/4×), 1 s fading track-local trails
+  const foot=i=>toScr((C.x1[i]+C.x2[i])/2,C.y2[i]),allLab=S.zoom>1;
+  if($("oTrail").checked)for(const i of ids){if(src(i)===2)continue;const sel=C.local[i]===S.sel;fadeTrail(C.local[i],f,foot,ctx,sel?3:2,sel?"#38bdf8":fillOf(i),sel?50:25)}
+  ctx.font="700 12px system-ui";ctx.textAlign="center";ctx.textBaseline="middle";
+  for(const i of ids){
+    const [x1,y1]=toScr(C.x1[i],C.y1[i]),[x2,y2]=toScr(C.x2[i],C.y2[i]);if(x2<0||x1>ov.clientWidth)continue;
+    const s=src(i),loc=C.local[i],sel=loc===S.sel,cx=(x1+x2)/2,rx=Math.max(7,(x2-x1)*0.7),ry=Math.max(3,rx*0.35);S.hit.push([i,x1,y1,x2,y2]);
+    const a=s?Math.max(0.25,C.dconf?C.dconf[i]:0.5):1;ctx.globalAlpha=a;
+    if(showMk){if(sel){ctx.beginPath();ctx.ellipse(cx,y2,rx+4,ry+3,0,0,7);ctx.strokeStyle="#38bdf8";ctx.lineWidth=2;ctx.stroke()}
+      ctx.beginPath();ctx.ellipse(cx,y2,rx,ry,0,0,7);ctx.strokeStyle=s===2?"#94a3b8":fillOf(i);ctx.lineWidth=sel?3.5:2.5;ctx.setLineDash(s===1?[4,3]:s===2?[2,3]:[]);ctx.stroke();ctx.setLineDash([])}
+    if(showLab&&(allLab||sel||loc===PRES.hov)){const t=label(i)+(s===1?" ~":s===2?" lost":""),w=ctx.measureText(t).width+10,h=16,ly=Math.max(h/2+1,y1-h/2-3);
+      ctx.fillStyle=sel?"#0c4a6e":"#020817d8";ctx.beginPath();ctx.roundRect(cx-w/2,ly-h/2,w,h,4);ctx.fill();ctx.strokeStyle=sel?"#38bdf8":fillOf(i);ctx.lineWidth=1.5;ctx.stroke();
+      ctx.fillStyle=s?"#fde68a":"#f8fafc";ctx.fillText(t,cx,ly+0.5)}
+    ctx.globalAlpha=1}
+  ctx.textAlign="left";ctx.textBaseline="bottom"}
+function trail(local,f,map,c,w,col,n){ // foot-point trail of one tracker ID: consecutive displayed frames of one tracklet, observed + bridged, never across a gap
+  const a=byLocal.get(local);if(!a)return;let j=lastBoxOf(local,f);if(j<0||frameOfBox[j]!==f)return;let k=posInLocal[j],prev=null;
+  c.beginPath();let m=0;
+  for(;k>=0&&m<n;k--){const i=a[k];if(src(i)===2)continue;if(prev!==null&&(C.trk[i]!==C.trk[prev]||frameOfBox[prev]-frameOfBox[i]!==1))break;
+    if(src(i)===1&&!$("oEst").checked)break;const p=map(i);if(!p)break;m?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]);prev=i;m++}
+  c.strokeStyle=col;c.lineWidth=w;c.globalAlpha=0.85;c.stroke();c.globalAlpha=1}
+function drawCalibration(ids){
+  const cal=S.ov.calibration;ctx.lineWidth=1.5;ctx.strokeStyle="#f472b6cc";ctx.setLineDash([6,4]);
+  for(const ln of cal.lines_image_px){ctx.beginPath();ln.forEach((p,k)=>{const [x,y]=toScr(p[0],p[1]);k?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke()}
+  ctx.setLineDash([]);ctx.font="10px system-ui";ctx.textBaseline="middle";
+  for(const kp of cal.keypoints){const [x,y]=toScr(kp.image_px[0],kp.image_px[1]),e=kp.loo_err_m;
+    ctx.fillStyle=e<=0.5?"#22c55e":e<=1?"#facc15":"#ef4444";ctx.beginPath();ctx.arc(x,y,4,0,7);ctx.fill();ctx.strokeStyle="#000";ctx.lineWidth=1;ctx.stroke();
+    if(S.zoom>1){ctx.fillStyle="#fff";ctx.fillText(e.toFixed(2)+" m",x+6,y)}}
+  for(const i of ids){const [x,y]=toScr((C.x1[i]+C.x2[i])/2,C.y2[i]);ctx.fillStyle=["#e2e8f0","#facc15","#ef4444"][C.pv[i]];ctx.fillRect(x-2,y-2,4,4)}
+  ctx.textBaseline="bottom"}
+
+/* ---------- tactical board ---------- */
+function pitchXY(xm,ym){return [PM+xm*PS,PM+ym*PS]}
+function boardPos(i){ // stored coordinates only: smoothed display (sx,sy) or raw (pxm,pym); nothing is moved for layout
+  if(S.boardImage){const b=S.ov.board,[ylo,yhi]=b.y_range_px,X=S.ov.image.width_px,W=bd.width,H=bd.height,m=18;
+    return [m+Math.max(0,Math.min(1,(C.x1[i]+C.x2[i])/2/X))*(W-2*m),m+Math.max(0,Math.min(1,(C.y2[i]-ylo)/(yhi-ylo)))*(H-2*m)]}
+  if(C.pv[i]===2)return null;
+  return $("oSmooth").checked&&C.sx?pitchXY(C.sx[i],C.sy[i]):pitchXY(C.pxm[i],C.pym[i])}
+function drawPitch(c,W,H,pm,ps,fine){
+  c.fillStyle="#0b3320";c.fillRect(0,0,W,H);
+  for(let k=0;k<10;k++)if(k%2){c.fillStyle="#0d3a25";c.fillRect(pm+k*10.5*ps,pm,10.5*ps,68*ps)}
+  c.strokeStyle="#ffffffc0";c.lineWidth=fine?1.2:2;const r=(x,y,w,h)=>c.strokeRect(pm+x*ps,pm+y*ps,w*ps,h*ps);
+  r(0,0,105,68);c.beginPath();c.moveTo(pm+52.5*ps,pm);c.lineTo(pm+52.5*ps,pm+68*ps);c.stroke();
+  c.beginPath();c.arc(pm+52.5*ps,pm+34*ps,9.15*ps,0,7);c.stroke();
+  r(0,34-20.16,16.5,40.32);r(105-16.5,34-20.16,16.5,40.32);r(0,34-9.16,5.5,18.32);r(105-5.5,34-9.16,5.5,18.32);
+  c.fillStyle="#fff";for(const x of [11,52.5,94]){c.beginPath();c.arc(pm+x*ps,pm+34*ps,fine?1.5:3,0,7);c.fill()}
+  c.lineWidth=fine?2:4;c.strokeStyle="#e2e8f0";c.beginPath();c.moveTo(pm,pm+(34-3.66)*ps);c.lineTo(pm,pm+(34+3.66)*ps);c.moveTo(pm+105*ps,pm+(34-3.66)*ps);c.lineTo(pm+105*ps,pm+(34+3.66)*ps);c.stroke()}
+function drawBoard(f){
+  const W=bd.width,H=bd.height;bctx.setTransform(1,0,0,1,0,0);bctx.clearRect(0,0,W,H);
+  if(S.boardImage){bctx.fillStyle="#0b2a1c";bctx.fillRect(0,0,W,H);bctx.strokeStyle="#ffffff30";bctx.lineWidth=2;bctx.setLineDash([10,6]);bctx.strokeRect(18,18,W-36,H-36);bctx.setLineDash([]);}
+  else{drawPitch(bctx,W,H,PM,PS,false);
+    bctx.fillStyle="#9fb3c8";bctx.font="14px system-ui";bctx.textAlign="left";bctx.fillText("far touchline",PM+4,PM-9);
+    bctx.textAlign="center";bctx.fillText("▲ camera side (near touchline)",W/2,H-8);
+    if(S.dir){bctx.textAlign="left";bctx.fillText(S.dir.leftTxt,PM+4,H-8);bctx.textAlign="right";bctx.fillText(S.dir.rightTxt,W-PM-4,H-8)}
+    bctx.textAlign="right";bctx.fillStyle="#fcd34dcc";bctx.font="600 14px system-ui";bctx.fillText("approximate positions · not for speed or distance",W-PM,PM-9)}
+  const ids=boxesOf(f);S.bhit=[];
+  if(PRES.on){if($("oTrail").checked)for(const i of ids){if(src(i)===2)continue;const sel=C.local[i]===S.sel;fadeTrail(C.local[i],f,boardPos,bctx,sel?4:2.5,sel?"#38bdf8":(teamOf(i)<0?"#94a3b8":(teamOf(i)===0?"#60a5fa":"#e2e8f0")),sel?50:25)}}
+  else{
+  if($("oTrail").checked)for(const i of ids){if(src(i)!==2&&C.local[i]!==S.sel)trail(C.local[i],f,boardPos,bctx,2,teamOf(i)<0?"#94a3b880":(teamOf(i)===0?"#60a5fa90":"#e2e8f090"),50)}
+  if(S.sel!=null)trail(S.sel,f,boardPos,bctx,4,"#38bdf8",125);}
+  let hidden=0,est=0,lost=0;const order=ids.slice().sort((a,b)=>(C.local[a]===S.sel)-(C.local[b]===S.sel));
+  for(const i of order){const p=boardPos(i);if(!p){hidden++;continue}
+    const s=src(i),l=lev(i),sel=C.local[i]===S.sel,edge=!S.boardImage&&C.pv[i]===1;est+=s===1;lost+=s===2;
+    const [x,y]=p,r=sel?19:15,a=s?Math.max(0.3,C.dconf?C.dconf[i]:0.5):1;S.bhit.push([i,x,y]);
+    if(sel){bctx.beginPath();bctx.arc(x,y,r+8,0,7);bctx.fillStyle="#38bdf833";bctx.fill();bctx.lineWidth=2;bctx.strokeStyle="#38bdf8";bctx.stroke()}
+    bctx.globalAlpha=a;bctx.beginPath();bctx.arc(x,y,r,0,7);
+    if(s===2){bctx.setLineDash([2,4]);bctx.lineWidth=2.5;bctx.strokeStyle="#cbd5e1";bctx.stroke();bctx.setLineDash([])}
+    else{bctx.fillStyle=edge?"#475569":fillOf(i);bctx.fill();bctx.lineWidth=sel?4.5:3.5;bctx.strokeStyle=s===1?"#fde68a":(edge?"#94a3b8":(PRES.on?"#0f172a":LEVCOL[l]));bctx.setLineDash(s===1?[4,4]:(PRES.on?[]:LEVDASH[l]));bctx.stroke();bctx.setLineDash([])}
+    bctx.globalAlpha=1}
+  drawBoardLabels(order);
+  S.boardStats={pitch:!S.boardImage,drawn:S.bhit.length,hidden,est,lost};
+  $("boardInfo").textContent=`${S.bhit.length} people drawn`+(est?` · ${est} estimated`:"")+(lost?` · ${lost} lost (fading)`:"")+(hidden?` · ${hidden} more than 5 m outside the pitch (bench/staff) not drawn`:"");
+}
+function drawBoardLabels(order){ // greedy label decluttering: labels move, markers never do
+  const boxes=[];const ov2=(a,b)=>a[0]<b[2]&&a[2]>b[0]&&a[1]<b[3]&&a[3]>b[1];
+  const items=[];for(const [i,x,y] of S.bhit)items.push([i,x,y]);items.sort((a,b)=>(C.local[b[0]]===S.sel)-(C.local[a[0]]===S.sel));
+  for(const [i,x,y] of items)boxes.push([x-15,y-15,x+15,y+15]);
+  for(const [i,x,y] of items){
+    const s=src(i),sel=C.local[i]===S.sel,txt=label(i)+(s===2?" lost":"");bctx.font=`700 ${sel?17:15}px system-ui`;const w=bctx.measureText(txt).width+8,h=19;
+    const r=sel?19:15,cands=[[x-w/2,y-r-h-2],[x-w/2,y+r+2],[x+r+2,y-h/2],[x-r-2-w,y-h/2],[x-w/2,y-r-h-14],[x-w/2,y+r+14]];let placed=null;
+    for(const [lx,ly] of cands){const b=[lx,ly,lx+w,ly+h];if(!boxes.some(o=>ov2(o,b))){placed=b;break}}
+    if(!placed){if(!sel)continue;placed=[cands[0][0],cands[0][1],cands[0][0]+w,cands[0][1]+h]}
+    boxes.push(placed);const a=s?Math.max(0.35,C.dconf?C.dconf[i]:0.5):1;bctx.globalAlpha=a;
+    bctx.fillStyle=sel?"#0c4a6e":"#020817d0";bctx.beginPath();bctx.roundRect(placed[0],placed[1],w,h,5);bctx.fill();
+    if(sel){bctx.strokeStyle="#38bdf8";bctx.lineWidth=1.5;bctx.stroke()}
+    bctx.fillStyle=s?"#fde68a":"#f8fafc";bctx.textAlign="center";bctx.textBaseline="middle";bctx.fillText(txt,placed[0]+w/2,placed[1]+h/2+1);bctx.globalAlpha=1}
+  bctx.textAlign="left";bctx.textBaseline="alphabetic"}
+function boardHover(e){const r=bd.getBoundingClientRect(),k=bd.width/r.width,x=(e.clientX-r.left)*k,y=(e.clientY-r.top)*k;let best=null,bd2=24*24;
+  for(const [i,bx,by] of S.bhit||[]){const d=(bx-x)**2+(by-y)**2;if(d<bd2){bd2=d;best=i}}
+  const tip=$("tip");if(best==null){tip.style.display="none";bd.style.cursor="default";return}bd.style.cursor="pointer";
+  const s=src(best),t=teamOf(best),pr=bd.parentElement.getBoundingClientRect();
+  if(PRES.on)tip.innerHTML=`<b>T${C.local[best]}</b> · ${t<0?"team unclear":TEAMNAME[t]} · ${C.role?ROLENAME[C.role[best]]:""}<br>${s===0?"observed position":s===1?"estimated (gap fill, display only)":"lost — last seen here"}<br>local track: not a player identity${hasPitch()&&!S.boardImage?`<br>≈ (${C.pxm[best].toFixed(0)} m, ${C.pym[best].toFixed(0)} m)`:""}`;else
+  tip.innerHTML=`<b>#${C.local[best]}</b> · ${t<0?"team unclear":TEAMNAME[t]} · ${C.role?ROLENAME[C.role[best]]:""}<br>${s===0?"observed position":s===1?"estimated (gap fill, display only)":"lost — last seen here"}<br>identity: ${LEVNAME[lev(best)]}${lev(best)<2?` (G${C.gid[best]})`:""}${hasPitch()&&!S.boardImage?`<br>≈ (${C.pxm[best].toFixed(0)} m, ${C.pym[best].toFixed(0)} m)`:""}`;
+  tip.style.display="block";tip.style.left=(e.clientX-pr.left+14)+"px";tip.style.top=(e.clientY-pr.top+14)+"px"}
+
+/* ---------- timeline ---------- */
+function drawTimeline(){
+  const dpr=window.devicePixelRatio||1,w=tl.clientWidth,h=tl.clientHeight;if(tl.width!==Math.round(w*dpr)){tl.width=Math.round(w*dpr);tl.height=Math.round(h*dpr)}
+  tctx.setTransform(dpr,0,0,dpr,0,0);tctx.clearRect(0,0,w,h);if(PRES.on){drawPresTimeline(w,h);return}const se=S.ov.series,n=S.nFrames,B=Math.min(w,300),bw=w/B;
+  for(let b=0;b<B;b++){const a=Math.floor(b*n/B),z=Math.floor((b+1)*n/B);let c=0,p=0,u=0,m=0,d=0;
+    for(let f=a;f<z;f++){c+=se.confirmed[f];p+=se.provisional[f];u+=se.unknown[f];m+=se.ambiguous[f];d+=se.det[f]}
+    const tot=c+p+u+m||1;let y=h;for(const [v,col] of [[c,"#22c55e"],[p,"#f59e0b"],[u+m,"#64748b"]]){const hh=v/tot*(h-12);tctx.fillStyle=col;tctx.globalAlpha=.85;tctx.fillRect(b*bw,y-hh,bw+0.6,hh);y-=hh}
+    tctx.globalAlpha=1;tctx.fillStyle="#fff";tctx.fillRect(b*bw,(1-(d/(z-a))/30)*(h-12),bw,1.5)}
+  const win=winRange(S.frame);if(win[0]>0||win[1]<n-1){tctx.fillStyle="#38bdf822";tctx.fillRect(win[0]/(n-1)*w,0,(win[1]-win[0])/(n-1)*w,h)}
+  const x=S.frame/(n-1)*w;tctx.fillStyle="#38bdf8";tctx.fillRect(x-1,0,2,h);
+  tctx.fillStyle="#9fb3c8";tctx.font="10px system-ui";tctx.fillText("0:00",3,10);const e=fmtS(n-1);tctx.fillText(e,w-tctx.measureText(e).width-3,10)}
+
+function drawPresTimeline(w,h){ // presentation clip only: people detected (white), frames with a team count above 11 (red), no identity status
+  const se=S.ov.series,f0=PRES.f0,n=PRES.f1-f0+1,X=f=>(f-f0)/Math.max(1,n-1)*w,B=Math.min(w,300),bw=w/B;
+  for(let b=0;b<B;b++){const a=f0+Math.floor(b*n/B),z=f0+Math.floor((b+1)*n/B);let d=0,o=0;for(let f=a;f<z;f++){d+=se.det[f];const c=PRES.cnt[f-f0];o+=c[0]>11||c[1]>11}
+    tctx.fillStyle="#1e3a5f";tctx.fillRect(b*bw,h-12,bw+0.6,10);if(o){tctx.fillStyle="#ef4444";tctx.fillRect(b*bw,h-12,bw+0.6,10)}
+    if(z>a){tctx.fillStyle="#fff";tctx.fillRect(b*bw,14+(1-(d/(z-a))/30)*(h-30),bw,1.5)}}
+  tctx.fillStyle="#38bdf8";tctx.fillRect(X(S.frame)-1,0,2,h);tctx.fillStyle="#9fb3c8";tctx.font="10px system-ui";tctx.fillText(fmtS(f0),3,10);
+  const e=fmtS(PRES.f1+1)+" · red = a team count above 11";tctx.fillText(e,w-tctx.measureText(e).width-3,10)}
+/* ---------- team time series (precomputed once from analytics-eligible rows only) ---------- */
+function buildSeries(){
+  const n=S.nFrames,mk=()=>({n:new Uint8Array(n),cx:new Float32Array(n).fill(NaN),cy:new Float32Array(n).fill(NaN),len:new Float32Array(n).fill(NaN),wid:new Float32Array(n).fill(NaN),comp:new Float32Array(n).fill(NaN),nn:new Float32Array(n).fill(NaN)});
+  TS=[mk(),mk()];
+  for(let f=0;f<n;f++){const P=[[],[]];
+    for(let i=off[f];i<off[f+1];i++){if(C.elig?C.elig[i]!==0:(isEst(i)||C.pv[i]!==0||C.role[i]>1||teamOf(i)<0))continue;const t=C.team[i];P[t].push([Math.max(0,Math.min(105,C.pxm[i])),Math.max(0,Math.min(68,C.pym[i]))])}
+    for(let t=0;t<2;t++){const p=P[t],T=TS[t];T.n[f]=p.length;if(p.length<MINVIS)continue;
+      let sx=0,sy=0,a=1e9,b=-1e9,c=1e9,d=-1e9;for(const [x,y] of p){sx+=x;sy+=y;a=Math.min(a,x);b=Math.max(b,x);c=Math.min(c,y);d=Math.max(d,y)}
+      const cx=sx/p.length,cy=sy/p.length;let comp=0,nn=0;for(const [x,y] of p){comp+=Math.hypot(x-cx,y-cy);let m=1e9;for(const [u,v] of p)if(u!==x||v!==y)m=Math.min(m,Math.hypot(u-x,v-y));nn+=m}
+      T.cx[f]=cx;T.cy[f]=cy;T.len[f]=b-a;T.wid[f]=d-c;T.comp[f]=comp/p.length;T.nn[f]=nn/p.length}}}
+function winRange(f){const w=$("anaWin").value;if(PRES.on)return w==="all"?[PRES.f0,PRES.f1]:[Math.max(PRES.f0,f-+w+1),Math.min(PRES.f1,Math.max(PRES.f0,f))];return w==="all"?[0,S.nFrames-1]:[Math.max(0,f-+w+1),f]}
+function agg(t,f0,f1){const T=TS[t],o={frames:f1-f0+1,cov:0,vis:0,cx:0,cy:0,len:0,wid:0,comp:0,nn:0};let k=0,vs=0;
+  for(let f=f0;f<=f1;f++){vs+=T.n[f];if(isNaN(T.len[f]))continue;k++;o.cx+=T.cx[f];o.cy+=T.cy[f];o.len+=T.len[f];o.wid+=T.wid[f];o.comp+=T.comp[f];o.nn+=T.nn[f]}
+  let ov=0;for(let f=f0;f<=f1;f++)ov+=T.n[f]>11;o.over=ov/o.frames;o.vis=vs/o.frames;o.cov=k/o.frames;o.k=k;if(k)for(const q of ["cx","cy","len","wid","comp","nn"])o[q]/=k;return o}
+function zoneShares(t,f0,f1){ // observed eligible samples: x thirds, y channels, density grid (5 m cells)
+  const X=[0,0,0],Y=[0,0,0],G=new Float32Array(21*14);let n=0;
+  for(let i=off[f0];i<off[f1+1];i++){if(C.elig[i]!==0||C.team[i]!==t)continue;const x=Math.max(0,Math.min(104.99,C.pxm[i])),y=Math.max(0,Math.min(67.99,C.pym[i]));
+    X[Math.floor(x/35)]++;Y[Math.floor(y/(68/3))]++;G[Math.floor(y/68*14)*21+Math.floor(x/105*21)]++;n++}
+  return {X,Y,G,n}}
+function inferDirection(f0=0,f1=S.nFrames-1){ // which goal a team defends, from where its (goalkeeper-class) players were observed in [f0,f1]; shown as an inference
+  const minN=Math.ceil(500*(f1-f0+1)/S.nFrames); // 500 observations over the whole clip; the same rate for a shorter (presentation) clip
+  const out={};for(let t=0;t<2;t++){const xs=[];for(let i=off[f0];i<off[f1+1];i++)if(!isEst(i)&&C.cls[i]==="goalkeeper"&&C.team[i]===t&&C.pv[i]===0)xs.push(C.pxm[i]);
+    xs.sort((a,b)=>a-b);const med=xs.length?xs[xs.length>>1]:null;out[t]={n:xs.length,med}}
+  // a keeper's median position must lie within 8 m of a goal line; if both teams qualify for the same goal the evidence conflicts -> no inference
+  const q=[0,1].filter(t=>out[t].n>=minN&&out[t].med!=null&&(out[t].med<8||out[t].med>97)).map(t=>({team:t,left:out[t].med<52.5,n:out[t].n,med:out[t].med}));
+  if(!q.length||(q.length===2&&q[0].left===q[1].left))return null;const d=q.sort((a,b)=>b.n-a.n)[0];const L=d.left?d.team:1-d.team;
+  return {defLeft:L,n:d.n,med:d.med,src:d.team,leftTxt:`◀ ${TEAMNAME[L]} goal`,rightTxt:`${TEAMNAME[1-L]} goal ▶`}}
+function thirdsFor(t,X){ // defensive / middle / attacking thirds when the direction is inferred, otherwise left / centre / right
+  if(!S.dir)return {names:["left third","middle third","right third"],v:X};
+  const defL=S.dir.defLeft===t;return {names:["defensive third","middle third","attacking third"],v:defL?X:[X[2],X[1],X[0]]}}
+const pct=(v,n)=>n?Math.round(100*v/n)+"%":"–",m1=v=>v.toFixed(1)+" m";
+
+function renderTeams(f){
+  const [f0,f1]=winRange(f);$("ovWin").textContent=`· ${fmtS(f0)}–${fmtS(f1)}`;let html="";
+  for(let t=0;t<2;t++){const A=agg(t,f0,f1),Z=zoneShares(t,f0,f1),th=thirdsFor(t,Z.X),now=TS[t].n[f];
+    const bar=(v,names,cols)=>`<div class="bar">${v.map((x,k)=>`<div title="${names[k]} ${pct(x,Z.n)}" style="flex:${x||0.0001};background:${cols[k]}">${Z.n&&x/Z.n>0.12?pct(x,Z.n):""}</div>`).join("")}</div>`;
+    html+=`<div class="tcard"><h3><i style="background:${TEAMCOL[t]}"></i>${TEAMNAME[t]} team</h3>
+      <div class="m"><b>visible now</b><span>${now}</span></div><div class="m"><b>visible on average</b><span>${A.vis.toFixed(1)}</span></div>
+      ${A.k?`<div class="m"><b>width</b><span>${m1(A.wid)}</span></div><div class="m"><b>length</b><span>${m1(A.len)}</span></div>
+      <div class="m"><b>compactness</b><span>${m1(A.comp)}</span></div><div class="m"><b>nearest-teammate spacing</b><span>${m1(A.nn)}</span></div>
+      <div class="m"><b>centre (x, y)</b><span>${A.cx.toFixed(0)}, ${A.cy.toFixed(0)} m</span></div>`:`<div class="m"><b>shape</b><span>too few visible players</span></div>`}
+      <div class="m"><b>coverage</b><span title="share of frames with at least ${MINVIS} visible players">${Math.round(100*A.cov)}% of frames</span></div>
+      <div class="sub" style="margin-top:4px">${th.names.join(" · ")}</div>${bar(th.v,th.names,["#334155","#64748b","#cbd5e1"])}
+      <div class="sub">far side · centre · camera side</div>${bar(Z.Y,["far side","centre","camera side"],["#1e3a8a","#3b82f6","#93c5fd"])}
+      <div class="sub">${Z.n.toLocaleString()} observed positions</div>${A.over>0.05?`<div class="note">⚠ more than 11 people assigned to ${TEAMNAME[t]} in ${Math.round(100*A.over)}% of frames — the colour grouping also catches other people (e.g. goalkeepers, dark-kit staff), so width, length and spacing are inflated.</div>`:""}</div>`;
+    S["agg"+t]=A;S["zone"+t]=Z}
+  $("teamCards").innerHTML=html;
+  $("dirNote").textContent=S.dir?`Direction: ${TEAMNAME[S.dir.defLeft]} defends the left goal — inferred from where ${TEAMNAME[S.dir.src]}'s goalkeeper was observed (median x ${S.dir.med.toFixed(1)} m, ${S.dir.n.toLocaleString()} observations). Shape values have about ±1 m calibration uncertainty.`:"Attacking direction could not be inferred; thirds are shown left to right."}
+
+function insights(f){
+  const [f0,f1]=winRange(f),L=[],n=f1-f0+1;
+  for(let t=0;t<2;t++){const A=S["agg"+t],Z=S["zone"+t],th=thirdsFor(t,Z.X),N=TEAMNAME[t];
+    if(A.over>0.05)L.push(`${N}: more than 11 people are assigned to this team in ${Math.round(100*A.over)}% of frames, so its shape values include some wrongly grouped people.`);
+    if(A.cov<0.5){L.push(`${N}: too few visible players for a reliable shape statement (≥ ${MINVIS} visible in only ${Math.round(100*A.cov)}% of frames).`);continue}
+    const k=th.v.indexOf(Math.max(...th.v));L.push(`${N}'s visible players were most often in the <b>${th.names[k]}</b> (${pct(th.v[k],Z.n)} of ${Z.n.toLocaleString()} positions).`);
+    const h=f0+Math.floor(n/2),a=agg(t,f0,h-1),b=agg(t,h,f1);
+    if(a.cov>=0.5&&b.cov>=0.5&&n>=50){const d=b.wid-a.wid;L.push(Math.abs(d)>=2?`${N}'s visible shape became <b>${d>0?"wider":"narrower"}</b> in the second half of the window (${m1(a.wid)} → ${m1(b.wid)}).`:`${N}'s visible width stayed similar across the window (${m1(a.wid)} → ${m1(b.wid)}).`)}
+    const ky=Z.Y.indexOf(Math.max(...Z.Y));if(Z.n&&Z.Y[ky]/Z.n>0.45)L.push(`${N} concentrated on the <b>${["far side","centre","camera side"][ky]}</b> channel (${pct(Z.Y[ky],Z.n)}).`)}
+  const A=S.agg0,B=S.agg1;if(A.cov>=0.5&&B.cov>=0.5){const m=A.comp<B.comp?0:1;L.push(`${TEAMNAME[m]} was the more compact visible group (average distance to centre ${m1(Math.min(A.comp,B.comp))} vs ${m1(Math.max(A.comp,B.comp))}).`)}
+  const si=selInfo();if(si)L.push(si.insight);
+  L.push(`<small>Visible players only (Blue ${S.agg0.vis.toFixed(1)}, White ${S.agg1.vis.toFixed(1)} on average of 11). Window ${fmtS(f0)}–${fmtS(f1)}.</small>`);
+  $("insights").innerHTML=L.map(x=>`<li>${x}</li>`).join("")}
+
+/* ---------- selected player: one continuous safe segment only ---------- */
+function selInfo(){
+  if(S.sel==null)return null;const j=lastObsOf(S.sel,S.frame);if(j<0||C.seg[j]<0)return null;
+  const g=S.ov.segments[C.seg[j]],a=byLocal.get(S.sel),pts=[];
+  const g0=PRES.on?Math.max(g.f0,PRES.f0):g.f0,g1=PRES.on?Math.min(g.f1,PRES.f1):g.f1; // presentation mode: the part of the segment inside the clip
+  for(const i of a){const f=frameOfBox[i];if(f<g0)continue;if(f>g1)break;if(src(i)===0&&C.seg[i]===C.seg[j]&&C.pv[i]!==2)pts.push([C.pxm[i],C.pym[i],f])}
+  if(!pts.length)return null;const X=[0,0,0];for(const [x] of pts)X[Math.min(2,Math.max(0,Math.floor(x/35)))]++;
+  const t=teamOf(j),th=t>=0?thirdsFor(t,X):{names:["left third","middle third","right third"],v:X};const k=th.v.indexOf(Math.max(...th.v));
+  const dur=(g1-g0+1)/S.ov.fps,who=PRES.on?"Track T"+S.sel:"Player #"+S.sel;const dx=pts[pts.length-1][0]-pts[0][0],dy=pts[pts.length-1][1]-pts[0][1];
+  let dir="mostly stationary";if(Math.hypot(dx,dy)>=3){const ang=Math.atan2(dy,dx);dir=Math.abs(dx)>=Math.abs(dy)?(dx>0?"towards the right goal":"towards the left goal"):(dy>0?"towards the camera side":"towards the far side")}
+  let xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);const ext=[Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys)];
+  const ok=dur>=4;
+  return {g,pts,th,k,dur,dir,ext,t,
+    insight:ok?`${who} (current tracking segment, ${dur.toFixed(1)} s): positions concentrated in the <b>${th.names[k]}</b> (${pct(th.v[k],pts.length)}), net movement ${dir}.`:`${who}: current tracking segment is only ${dur.toFixed(1)} s — too short for a player-level conclusion.`}}
+function renderSelected(f){
+  const el=$("sel");$("selMore").style.display=S.sel==null?"none":"block";
+  if(S.sel==null){el.className="sub";el.textContent="Click a player on the board or in the video.";return}
+  const tr=S.ov.tracks[String(S.sel)],j=lastBoxOf(S.sel,f);if(!tr||j<0){el.className="sub";el.textContent=(PRES.on?"Track T":"Tracker #")+S.sel+" has not appeared yet at this moment.";return}
+  const here=frameOfBox[j]===f,s=src(j),l=lev(j),t=teamOf(j),jo=lastObsOf(S.sel,f);
+  const state=!here?`<span class="chip lost">NOT VISIBLE</span> last seen ${fmt(frameOfBox[j])}`:s===0?`<span class="chip obs">OBSERVED</span>`:s===1?`<span class="chip est">ESTIMATED</span> short tracking gap, display only`:`<span class="chip lost">LOST</span> last seen ${fmt(frameOfBox[jo])}`;
+  if(PRES.on){$("selMore").style.display="none";el.className=""; // presentation mode: local track facts only, no identity status or whole-match history
+    el.innerHTML=`<div class="row" style="justify-content:space-between"><span style="font-size:20px;font-weight:700">T${S.sel}</span><span>${state}</span></div>
+     <div class="kv" style="margin-top:4px"><b>team · role</b><span>${t<0?"team unclear":TEAMNAME[t]+" team"} · ${C.role?ROLENAME[C.role[j]]:"–"}</span>
+     <b>position</b><span>${hasPitch()&&C.pv[j]!==2?`≈ ${C.pxm[j].toFixed(1)} m, ${C.pym[j].toFixed(1)} m (${["on the pitch","near the edge","outside"][C.pv[j]]})`:"outside the calibrated pitch"}</span>
+     <b>track</b><span>local tracker track; the number can restart after an occlusion, so it is not a player identity</span></div>`;return}
+  const idTxt=l===0?`G${C.gid[j]} · trusted`:l===1?`G${C.gid[j]}? · hypothesis only${C.as[j]===1?" (via an unvalidated link)":""}`:"not trusted (unknown/ambiguous)";
+  const est=byLocal.get(S.sel).filter(i=>src(i)===1).length;
+  el.className="";el.innerHTML=`<div class="row" style="justify-content:space-between"><span style="font-size:20px;font-weight:700">#${S.sel}</span><span>${state}</span></div>
+   <div class="kv" style="margin-top:4px"><b>team · role</b><span>${t<0?"team unclear":TEAMNAME[t]+" team"} · ${C.role?ROLENAME[C.role[j]]:"–"}</span>
+   <b>identity</b><span style="color:${LEVCOL[l]}">${idTxt}</span>
+   <b>position</b><span>${hasPitch()&&C.pv[j]!==2?`≈ ${C.pxm[j].toFixed(1)} m, ${C.pym[j].toFixed(1)} m (${["on the pitch","near the edge","outside"][C.pv[j]]}; nearest landmark ${C.kpd[j].toFixed(0)} m)`:"outside the calibrated pitch"}</span>
+   <b>tracking</b><span>${fmtS(tr.first)}–${fmtS(tr.last)} · ${tr.n} observed frames · ${tr.interruptions} gaps · ${est} estimated frames shown · ${tr.tracklets.length} segment chain(s)</span></div>`;
+  const si=selInfo();
+  if(si){const g=si.g;$("selStats").innerHTML=`<div class="kv"><b>segment</b><span>${fmtS(g.f0)}–${fmtS(g.f1)} (${si.dur.toFixed(1)} s)</span>
+     <b>safe to attribute</b><span>${g.use==="attributable"?'<span class="chip obs">yes</span>':'<span class="chip lost">no</span> '+g.why.join(", ").replace(/_/g," ")}</span>
+     <b>observed samples</b><span>${si.pts.length}</span><b>${si.th.names[si.k]}</b><span>${pct(si.th.v[si.k],si.pts.length)} of time</span>
+     <b>net movement</b><span>${si.dir}</span><b>area covered</b><span>${si.ext[0].toFixed(0)} × ${si.ext[1].toFixed(0)} m (approx.)</span></div>`;
+    drawSelMap(si)}else{$("selStats").innerHTML='<span class="sub">No observed segment at this moment.</span>';drawSelMap(null)}
+  drawIdTimeline(f)}
+function drawSelMap(si){const cv=$("selMap"),c=cv.getContext("2d"),pm=10,ps=(cv.width-2*pm)/105;drawPitch(c,cv.width,cv.height,pm,ps,true);if(!si)return;
+  c.fillStyle="#38bdf840";for(const [x,y] of si.pts){c.beginPath();c.arc(pm+x*ps,pm+y*ps,5,0,7);c.fill()}
+  c.beginPath();si.pts.forEach(([x,y],k)=>k?c.lineTo(pm+x*ps,pm+y*ps):c.moveTo(pm+x*ps,pm+y*ps));c.strokeStyle="#38bdf8";c.lineWidth=1.5;c.stroke();
+  const [x,y]=si.pts[si.pts.length-1];c.beginPath();c.arc(pm+x*ps,pm+y*ps,6,0,7);c.fillStyle="#fff";c.fill()}
+function drawIdTimeline(f){
+  const cv=$("idtl"),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;if(!w)return;
+  if(cv.width!==Math.round(w*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}
+  const c=cv.getContext("2d");c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
+  const a=byLocal.get(S.sel);if(!a)return;const n=S.nFrames,X=fr=>fr/(n-1)*w,bw=Math.max(1,w/n);let prevSeg=null;
+  for(const i of a){const fr=frameOfBox[i],s=src(i);if(s===2)continue;c.fillStyle=LEVCOL[lev(i)];c.globalAlpha=s?0.35:1;c.fillRect(X(fr),5,bw+0.3,h-20);c.globalAlpha=1;
+    if(s===0&&C.seg[i]!==prevSeg){c.fillStyle="#e2e8f0";c.beginPath();c.moveTo(X(fr),h-15);c.lineTo(X(fr)-3,h-9);c.lineTo(X(fr)+3,h-9);c.fill();prevSeg=C.seg[i]}}
+  const segs=new Set();for(const i of a)if(C.seg[i]>=0)segs.add(C.seg[i]);
+  for(const s of segs){const g=S.ov.segments[s];if(g.use==="attributable"){c.fillStyle="#22c55e";c.fillRect(X(g.f0),h-5,Math.max(2,X(g.f1)-X(g.f0)),4)}}
+  c.fillStyle="#38bdf8";c.fillRect(X(f)-1,0,2,h)}
+
+/* ---------- analytics canvases ---------- */
+function drawHeat(cv,t,Z){const c=cv.getContext("2d"),pm=10,ps=(cv.width-2*pm)/105;drawPitch(c,cv.width,cv.height,pm,ps,true);if(!Z.n)return;
+  const col=t===0?[59,130,246]:[241,245,249];
+  if(S.hm==="density"){const G=Z.G,B=new Float32Array(G.length);let mx=0;
+    for(let y=0;y<14;y++)for(let x=0;x<21;x++){let s=0,w=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const u=x+dx,v=y+dy;if(u<0||v<0||u>20||v>13)continue;const k=(dx||dy)?((dx&&dy)?0.35:0.6):1;s+=G[v*21+u]*k;w+=k}B[y*21+x]=s/w;mx=Math.max(mx,s/w)}
+    for(let y=0;y<14;y++)for(let x=0;x<21;x++){const v=B[y*21+x]/mx;if(v<0.04)continue;c.fillStyle=`rgba(${col},${(0.12+0.78*v).toFixed(2)})`;c.fillRect(pm+x*5*ps,pm+y*(68/14)*ps,5*ps+0.5,(68/14)*ps+0.5)}}
+  else{const NX=6,NY=4,g=new Array(NX*NY).fill(0);for(let y=0;y<14;y++)for(let x=0;x<21;x++){g[Math.min(NY-1,Math.floor((y+0.5)/14*NY))*NX+Math.min(NX-1,Math.floor((x+0.5)/21*NX))]+=Z.G[y*21+x]}
+    const mx=Math.max(...g);c.font="600 13px system-ui";c.textAlign="center";c.textBaseline="middle";
+    for(let k=0;k<g.length;k++){const x=k%NX,y=Math.floor(k/NX),zw=105/NX*ps,zh=68/NY*ps;c.fillStyle=`rgba(${col},${(0.08+0.75*g[k]/mx).toFixed(2)})`;c.fillRect(pm+x*zw,pm+y*zh,zw,zh);
+      c.fillStyle=t===1&&g[k]/mx>0.5?"#0f172a":"#fff";c.fillText(pct(g[k],Z.n),pm+x*zw+zw/2,pm+y*zh+zh/2)}c.textAlign="left"}
+  drawPitchLinesOnly(c,pm,ps)}
+function drawPitchLinesOnly(c,pm,ps){c.strokeStyle="#ffffff90";c.lineWidth=1;c.strokeRect(pm,pm,105*ps,68*ps);c.beginPath();c.moveTo(pm+52.5*ps,pm);c.lineTo(pm+52.5*ps,pm+68*ps);c.stroke();c.beginPath();c.arc(pm+52.5*ps,pm+34*ps,9.15*ps,0,7);c.stroke()}
+function drawFormation(f){const cv=$("form"),c=cv.getContext("2d"),pm=10,ps=(cv.width-2*pm)/105;drawPitch(c,cv.width,cv.height,pm,ps,true);
+  const [f0,f1]=winRange(f),acc=new Map(),n=f1-f0+1;
+  for(let i=off[f0];i<off[f1+1];i++){if(C.elig[i]!==0)continue;const k=C.local[i];let o=acc.get(k);if(!o){o={x:0,y:0,n:0,t:[0,0]};acc.set(k,o)}o.x+=C.pxm[i];o.y+=C.pym[i];o.n++;o.t[C.team[i]]++}
+  const P=[[],[]];for(const [k,o] of acc){if(o.n<0.4*n)continue;const t=o.t[0]>=o.t[1]?0:1;P[t].push([o.x/o.n,o.y/o.n,k])}
+  for(let t=0;t<2;t++){const h=hull(P[t]);if(h.length>2){c.beginPath();h.forEach(([x,y],k)=>k?c.lineTo(pm+x*ps,pm+y*ps):c.moveTo(pm+x*ps,pm+y*ps));c.closePath();c.fillStyle=t?"#f1f5f91f":"#3b82f62a";c.fill();c.strokeStyle=t?"#f1f5f9a0":"#60a5fab0";c.lineWidth=1.5;c.stroke()}
+    for(const [x,y,k] of P[t]){c.beginPath();c.arc(pm+x*ps,pm+y*ps,7,0,7);c.fillStyle=TEAMCOL[t];c.fill();c.strokeStyle="#0f172a";c.lineWidth=1;c.stroke();c.fillStyle=t?"#0f172a":"#fff";c.font="600 8px system-ui";c.textAlign="center";c.textBaseline="middle";c.fillText(k,pm+x*ps,pm+y*ps+0.5)}}
+  c.textAlign="left";$("formInfo").textContent=`${P[0].length} Blue and ${P[1].length} White tracker IDs visible ≥ 40% of ${fmtS(f0)}–${fmtS(f1)}`+($("anaWin").value==="all"?" (whole clip: positions from many phases are averaged)":"")}
+function hull(p){if(p.length<3)return p;const q=p.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]),cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]),lo=[],up=[];
+  for(const x of q){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],x)<=0)lo.pop();lo.push(x)}for(const x of q.slice().reverse()){while(up.length>=2&&cr(up[up.length-2],up[up.length-1],x)<=0)up.pop();up.push(x)}
+  return lo.slice(0,-1).concat(up.slice(0,-1))}
+function drawShape(f){const cv=$("shape"),c=cv.getContext("2d"),W=cv.width,H=cv.height,l=34,r=8,tp=10,bt=24;c.clearRect(0,0,W,H);c.fillStyle="#08111d";c.fillRect(0,0,W,H);
+  const P=PRES.on,base=P?PRES.f0:0,last=P?PRES.f1:S.nFrames-1; // presentation mode: the clip only, 5 s bins anchored at the clip start
+  const n=last-base+1,BIN=125,sec=Math.ceil(n/BIN),X=s=>l+s/Math.max(1,sec-1)*(W-l-r),Y=v=>tp+(1-v/70)*(H-tp-bt);
+  const [f0,f1]=winRange(f);c.fillStyle="#38bdf822";c.fillRect(X((f0-base)/BIN),tp,Math.max(2,X((f1-base)/BIN)-X((f0-base)/BIN)),H-tp-bt);
+  c.strokeStyle="#1f3550";c.fillStyle="#8ea3bb";c.font="10px system-ui";c.lineWidth=1;for(const v of [0,20,40,60]){c.beginPath();c.moveTo(l,Y(v));c.lineTo(W-r,Y(v));c.stroke();c.fillText(v+" m",2,Y(v)+3)}
+  if(P){for(let k=0;k<n;k+=250)c.fillText(fmtS(base+k),X(k/BIN)-10,H-8)}else
+  for(let m=0;m*1500<n;m++){c.fillText(m+":00",X(m*1500/BIN)-8,H-8)}
+  const K=P?"secP":"sec";if(P&&PRES.secKey!==base+":"+last){S.secP=null;PRES.secKey=base+":"+last}
+  if(!S[K]){S[K]=[0,1].map(t=>["wid","len"].map(q=>{const a=new Float32Array(sec).fill(NaN);for(let s=0;s<sec;s++){const v=[];for(let k=base+s*BIN;k<Math.min(last+1,base+s*BIN+BIN);k++){const x=TS[t][q][k];if(!isNaN(x))v.push(x)}if(v.length>=BIN/2){v.sort((p,q2)=>p-q2);a[s]=v[v.length>>1]}}return a}))}
+  for(let t=0;t<2;t++)for(let q=0;q<2;q++){const a=S[K][t][q];c.strokeStyle=t?"#e2e8f0":"#60a5fa";c.lineWidth=1.5;c.setLineDash(q?[4,3]:[]);c.beginPath();let pen=false;
+    for(let s=0;s<sec;s++){if(isNaN(a[s])){pen=false;continue}pen?c.lineTo(X(s),Y(a[s])):c.moveTo(X(s),Y(a[s]));pen=true}c.stroke();c.setLineDash([])}
+  c.fillStyle="#38bdf8";c.fillRect(X((f-base)/BIN)-1,tp,2,H-tp-bt)}
+function renderGates(g){ // readiness of each metric family on THIS match (filled from the analytics service)
+  const cal=S.ov.calibration,h=cal?cal.held_out:null,pl=g&&g.plausibility;
+  const chk=(ok,t)=>`<span class="chip ${ok?"obs":"no"}">${ok?"PASS":"FAIL"}</span> ${t}`;
+  const req=[chk(true,"timestamps: uniform 25 fps, verified against the video"),
+    chk(true,`per-sample coordinate validity: on the pitch and within 13 m of a calibration landmark (held-out p90 0.96 m there; whole pitch ${h?h.loo.p90_m:"–"} m)`),
+    chk(true,"identity: one continuous tracking segment per result (L1); totals only for reviewer-confirmed identities (L2)"),
+    chk(pl?pl.passed:false,pl?`position plausibility: ${pl.passed?"passed":pl.reasons.join("; ")}`:"position plausibility: not yet computed"),
+    chk(false,"independent validation of speeds or identities (L3): none exists")].join("<br>");
+  const rows=[["Distance (window, zone, segment)"],["Speed: instantaneous, smoothed, average, max, distribution"],["Acceleration / deceleration events"],["High-speed running"],["Sprints: count, timing, duration, distance, peak"],["Repeated sprints, work : rest"],["Workload descriptor (not fatigue)"]];
+  const st=pl?(pl.passed?`<span class="chip obs">OBSERVED SEGMENTS (L1)</span>`:`<span class="chip no">VALUES WITHHELD</span>`):`<span class="chip lost">…</span>`;
+  $("gates").innerHTML=`<tr><th>metric family</th><th>implementation</th><th>this match</th><th>conditions</th></tr>`+
+    rows.map((r,k)=>`<tr><td><b>${r[0]}</b></td><td><span class="chip sim">TESTED ON SIMULATED DATA</span><br><span class="chip app">RUNS ON REAL SEGMENTS</span></td><td>${st}</td>${k===0?`<td rowspan="${rows.length}">${req}</td>`:""}</tr>`).join("")}
+
+/* ---------- physical analytics (computed by the local Python service; this page only displays) ---------- */
+const PF=[["hsr_kmh","HSR from","km/h"],["sprint_kmh","Sprint from","km/h"],["sprint_exit_kmh","Sprint ends below","km/h"],["sprint_min_duration_s","Min sprint duration","s"],
+  ["sprint_min_distance_m","Min sprint distance","m"],["min_recovery_s","Min recovery (merge)","s"],["repeated_window_s","Repeated-sprint window","s"],["repeated_min_efforts","Repeated: min efforts",""],
+  ["accel_mps2","Acceleration ≥","m/s²"],["decel_mps2","Deceleration ≥","m/s²"],["accel_min_duration_s","Accel/decel min duration","s"],["max_gap_s","Max gap inside a run","s"],
+  ["smoothing","Smoothing",""],["smooth_window_s","Smoothing window","s"],["min_segment_s","Min segment duration","s"],["min_coverage","Min valid coverage","0–1"],
+  ["max_plausible_kmh","Artefact limit","km/h"],["jog_kmh","Jogging from","km/h"],["run_kmh","Running from","km/h"],["kalman_accel_noise","Kalman response","m²/s³"]];
+const SMOOTH=[["moving_average","moving avg"],["median","median"],["none","none"],["kalman_rts","Kalman RTS (M7.3)"],["savgol","Savitzky-Golay (M7.3)"],["hampel_savgol","Hampel + S-G (M7.3)"],["robust_poly","robust local poly (M7.3)"]];
+const BLOCK={too_short:"segment shorter than the minimum",coverage:"too few valid positions (off pitch, far from landmarks, gaps)",role:"official, staff or unknown role",identity:"not one safe segment",not_metres:"not metres",timestamps:"timestamps"};
+async function initPhysical(){
+  $("pFields").innerHTML=PF.map(([k,l,u])=>`<label>${l}${u?` <span class="sub">(${u})</span>`:""}${k==="smoothing"?`<select id="pf_${k}">${SMOOTH.map(([v,l])=>`<option value="${v}">${l}</option>`).join("")}</select>`:`<input id="pf_${k}" type="number" step="any">`}</label>`).join("");
+  try{S.presets=await (await fetch("/api/presets")).json()}catch(e){$("pErr").textContent="analytics service unavailable";return}
+  fillPresets();applySettings(S.presets.defaults);renderGates(null);
+  $("pRun").onclick=runPhys;$("pSave").onclick=savePreset;$("pDefaults").onclick=()=>{applySettings(S.presets.defaults);$("pPreset").value="b:example_adult_common";$("pPresetNote").textContent=S.presets.builtin.example_adult_common.description};
+  $("pPreset").onchange=()=>{const v=$("pPreset").value,[t,n]=[v.slice(0,1),v.slice(2)],p=t==="b"?S.presets.builtin[n]:S.presets.saved[n];if(p){applySettings(p.settings);$("pPresetNote").textContent=t==="b"?p.description:`saved ${p.saved_utc} · coach-selected definition`}};
+  $("pWin").onchange=()=>{const c=$("pWin").value==="custom";$("pT0").style.display=$("pT1").style.display=c?"":"none"};
+  $("pDiag").onchange=runPhys;$("pPos").onchange=runPhys;$("pExpJson").onclick=()=>exportPhys("json");$("pExpCsv").onclick=()=>exportPhys("csv");$("pExpPreset").onclick=()=>exportPhys("preset");$("pExpQuality").onclick=()=>exportPhys("quality");
+  initReview();await runPhys()}
+function fillPresets(){const P=S.presets;$("pPreset").innerHTML=Object.entries(P.builtin).map(([k,v])=>`<option value="b:${k}">${v.label}</option>`).join("")+Object.keys(P.saved).map(k=>`<option value="s:${k}">Saved: ${k}</option>`).join("");$("pPresetNote").textContent=P.builtin.example_adult_common.description}
+function applySettings(st){for(const [k] of PF){const e=$("pf_"+k);if(e&&st[k]!=null)e.value=st[k]}}
+function readSettings(){const o={};for(const [k] of PF){const e=$("pf_"+k);o[k]=k==="smoothing"?e.value:(e.value===""?NaN:Number(e.value))}return o}
+function physQuery(){const q={settings:readSettings(),diagnostic:$("pDiag").checked,positions:$("pPos").value},sc=$("pScope").value,w=$("pWin").value;
+  if(sc==="player"){if(S.sel==null)return {q,need:"Select a player on the board first (or choose a team scope)."};q.local=S.sel}else if(sc!=="all")q.team=+sc;
+  if(w==="ana"){const [a,b]=winRange(S.frame);q.t0=a/S.ov.fps;q.t1=b/S.ov.fps}else if(w==="custom"){const a=parseFloat($("pT0").value),b=parseFloat($("pT1").value);if(!isNaN(a))q.t0=a;if(!isNaN(b))q.t1=b}
+  return {q}}
+async function runPhys(){
+  const {q,need}=physQuery();$("pErr").textContent="";if(need){$("pBanner").innerHTML=`<span class="sub">${need}</span>`;$("pSummary").innerHTML="";$("pTable").innerHTML="";$("pSpeed").style.display="none";return}
+  for(const [k,v] of Object.entries(q.settings))if(typeof v==="number"&&isNaN(v)){$("pErr").textContent=`${k}: enter a number`;return}
+  $("pRun").disabled=true;let r;try{r=await fetch("/api/analytics",{method:"POST",body:JSON.stringify(q)})}finally{$("pRun").disabled=false}
+  const d=await r.json();if(!r.ok){$("pErr").innerHTML=d.errors.join("<br>");return}
+  S.phys=d;S.physQ=q;renderPhys(d);renderGates(d)}
+function renderPhys(d){
+  const s=d.summary,pl=d.plausibility,val=d.values;
+  $("pBanner").innerHTML=val==="withheld"?`<span class="chip no">VALUES WITHHELD</span> <b>The analysis ran on ${pl.eligible_segments} eligible real segments, but the positions fail the plausibility check:</b><ul class="ins">${pl.reasons.map(x=>`<li>${x}</li>`).join("")}</ul><span class="sub">Showing distances or speeds now would mislead. What would unlock them: less foot-point jitter (a better detector box bottom or a foot keypoint) and a fresh check. Eligibility and blockers below are real.</span>`:
+    val==="diagnostic_values_not_valid"?`<span class="chip no">DIAGNOSTIC VALUES — NOT VALID</span> <span class="sub">${pl.reasons.join("; ")}. For engineers only; never present these as player data.</span>`:
+    `<span class="chip obs">OBSERVED-SEGMENT RESULTS (L1)</span> <span class="sub">Each value belongs to one tracking segment, not to a player's match. Plausibility check passed (${pl.eligible_segments} segments).</span>`;
+  const lv=s.levels||{},bl=Object.entries(s.blocker_counts||{}).map(([k,v])=>`${BLOCK[k]||k}: ${v}`).join(" · ")||"none";
+  const v=(x,u)=>x==null?"—":x+(u||"");
+  $("pSummary").innerHTML=[["segments in scope",`${s.segments_in_window} · eligible ${s.eligible_segments} (L1 ${lv.L1||0}, L2 ${lv.L2||0})`],["not eligible because",bl],
+    ["observed eligible time",`${(s.observed_eligible_time_s/60).toFixed(1)} min`],["distance per observed minute",v(s.distance_per_observed_min_m," m")],["HSR per observed minute",v(s.hsr_per_observed_min_m," m")],
+    ["sprints (in observed time)",v(s.sprints)],["top speed (smoothed)",v(s.max_kmh," km/h")],["L2 reviewed totals",Object.keys(d.reviewed_identity_totals||{}).join(", ")||"none (needs a confirmed review)"],
+    ["L3",'blocked: no independent validation']].map(r=>`<b>${r[0]}</b><span>${r[1]}</span>`).join("");
+  const segs=d.segments.slice().sort((a,b)=>(b.metrics?1:0)-(a.metrics?1:0)||b.coverage-a.coverage).slice(0,60),M=x=>x.metrics;
+  $("pTable").innerHTML=`<tr><th>segment</th><th>tracker</th><th>team</th><th>time</th><th>level</th><th>valid coverage</th><th title="median foot-point position uncertainty (pixel noise through the projection; calibration error not included)">± pos (m)</th><th>distance</th><th>top speed</th><th>HSR</th><th>sprints</th><th>acc / dec</th><th>blockers</th></tr>`+
+    segs.map(x=>`<tr><td>${x.id}</td><td>#${x.local}${x.reviewed_identity?` <span class="chip obs">${x.reviewed_identity}</span>`:""}</td><td>${x.team_name}</td><td><a href="#" data-f="${x.window_f[0]}">${fmtS(x.window_f[0])}–${fmtS(x.window_f[1])}</a></td>
+      <td><span class="chip ${x.level==="L0"?"no":"obs"}">${x.level}</span></td><td>${(100*x.coverage).toFixed(0)}%</td><td>${x.position_sigma_m!=null?"±"+x.position_sigma_m:"—"}</td>
+      <td>${M(x)?M(x).distance_m+" m":"—"}</td><td>${M(x)?M(x).speed.max_kmh+" km/h":"—"}</td><td>${M(x)?M(x).hsr_distance_m+" m":"—"}</td><td>${M(x)?M(x).sprint_count:"—"}</td>
+      <td>${M(x)?M(x).accelerations.length+" / "+M(x).decelerations.length:"—"}</td><td class="sub">${(x.blocker_codes||[]).map(k=>BLOCK[k]||k).join("; ")}</td></tr>`).join("")+(d.segments.length>60?`<tr><td colspan="13" class="sub">${d.segments.length-60} more in the export</td></tr>`:"");
+  for(const a of $("pTable").querySelectorAll("a[data-f]"))a.onclick=e=>{e.preventDefault();if(S.playing)togglePlay();seekFrame(+a.dataset.f)};
+  drawSpeed(d)}
+function drawSpeed(d){
+  const c=$("pSpeed"),segs=d.segments.filter(x=>x.metrics&&x.metrics.speed_series_kmh);
+  if(!segs.length){c.style.display="none";$("pSpeedNote").textContent=d.query.local==null?"":(d.values==="withheld"?"Speed chart: values withheld (plausibility check failed).":"Speed chart: no eligible segment for this player under these definitions.");$("pSprints").textContent="";return}
+  c.style.display="block";const g=c.getContext("2d"),W=c.width,H=c.height,l=36,b=20,t0=Math.min(...segs.map(x=>x.window_f[0]))/S.ov.fps,t1=Math.max(...segs.map(x=>x.window_f[1]))/S.ov.fps,st=d.settings;
+  const X=t=>l+(t-t0)/Math.max(1e-6,t1-t0)*(W-l-6),Y=v=>H-b-v/Math.max(36,st.sprint_kmh+4)*(H-b-8);
+  g.clearRect(0,0,W,H);g.fillStyle="#08111d";g.fillRect(0,0,W,H);g.font="10px system-ui";
+  for(const [v,col,name] of [[st.hsr_kmh,"#f59e0b","HSR"],[st.sprint_kmh,"#ef4444","sprint"]]){g.strokeStyle=col;g.setLineDash([4,3]);g.beginPath();g.moveTo(l,Y(v));g.lineTo(W,Y(v));g.stroke();g.setLineDash([]);g.fillStyle=col;g.fillText(name+" "+v,2,Y(v)-2)}
+  for(const x of segs){for(const sp of x.metrics.sprints){g.fillStyle="#ef444433";g.fillRect(X(sp.start_s),8,Math.max(2,X(sp.end_s)-X(sp.start_s)),H-b-8)}
+    g.strokeStyle=d.values==="valid_observed_segment_values"?"#38bdf8":"#a1a1aa";g.lineWidth=1.3;for(const run of x.metrics.speed_series_kmh){g.beginPath();run.forEach(([t,v],k)=>k?g.lineTo(X(t),Y(v)):g.moveTo(X(t),Y(v)));g.stroke()}}
+  g.fillStyle="#8ea3bb";g.fillText(fmtS(t0*S.ov.fps),l,H-6);g.fillText(fmtS(t1*S.ov.fps),W-34,H-6);g.fillText("km/h",2,12);
+  $("pSpeedNote").textContent=`Smoothed speed of the selected player's eligible segments (gaps = not observed or not valid; nothing is drawn across them).${d.values!=="valid_observed_segment_values"?" DIAGNOSTIC — NOT VALID.":""}`;
+  const sp=segs.flatMap(x=>x.metrics.sprints);$("pSprints").innerHTML=sp.length?"Sprints: "+sp.map(z=>`<a href="#" data-f="${Math.round(z.start_s*S.ov.fps)}">${fmtS(z.start_s*S.ov.fps)}</a> ${z.duration_s} s / ${z.distance_m} m / ${z.peak_kmh} km/h`).join(" · "):"No sprint under these definitions.";
+  for(const a of $("pSprints").querySelectorAll("a[data-f]"))a.onclick=e=>{e.preventDefault();seekFrame(+a.dataset.f)}}
+async function savePreset(){const name=$("pName").value.trim(),r=await fetch("/api/presets",{method:"POST",body:JSON.stringify({name,settings:readSettings()})}),d=await r.json();
+  if(!r.ok){$("pErr").innerHTML=d.errors.join("<br>");return}$("pErr").textContent="";S.presets=await (await fetch("/api/presets")).json();fillPresets();$("pPreset").value="s:"+name;$("pPresetNote").textContent=`saved ${d.preset.saved_utc} · coach-selected definition`}
+function download(name,text,type){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+function exportPhys(kind){
+  const d=S.phys;if(!d&&kind!=="preset"){$("pErr").textContent="Recalculate first.";return}
+  const meta=d?{exported_utc:new Date().toISOString(),match:S.ov.match_id,interval_s:[d.query.t0,d.query.t1],scope:d.query,units:{distance:"m",speed:"km/h",acceleration:"m/s^2",time:"s"},values:d.values,plausibility:d.plausibility,provenance:d.provenance}:{};
+  const tag=`${S.ov.match_id}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}`;
+  if(kind==="preset")return download(`preset_${tag}.json`,JSON.stringify({schema:S.presets.schema,label:"coach-selected definition (not a validated standard)",settings:readSettings()},null,1),"application/json");
+  if(kind==="json")return download(`physical_summary_${tag}.json`,JSON.stringify({meta,settings:d.settings,summary:d.summary,reviewed_identity_totals:d.reviewed_identity_totals,segments:d.segments.map(x=>{const y={...x};if(y.metrics){y.metrics={...y.metrics};delete y.metrics.speed_series_kmh}return y})},null,1),"application/json");
+  if(kind==="quality")return download(`data_quality_${tag}.json`,JSON.stringify({meta,levels:d.summary.levels,blocker_counts:d.summary.blocker_counts,eligible_segments:d.summary.eligible_segments,segments_in_window:d.summary.segments_in_window,
+    observed_eligible_time_s:d.summary.observed_eligible_time_s,calibration_held_out:S.ov.calibration&&S.ov.calibration.held_out,teams:S.ov.teams||null,continuity:S.ov.continuity&&S.ov.continuity.stats},null,1),"application/json");
+  const q=v=>`"${String(v??"").replace(/"/g,'""')}"`,head=[`# match ${S.ov.match_id}; values: ${d.values}; plausibility: ${d.plausibility.passed?"passed":d.plausibility.reasons.join(" | ")}`,`# settings ${JSON.stringify(d.settings)}`,`# interval_s ${JSON.stringify([d.query.t0,d.query.t1])}; units m, km/h, m/s^2, s; observed-segment results, not player totals; no fatigue claims`];
+  const rows=[["row","segment","tracker","team","level","coverage","start_s","end_s","distance_m","max_kmh","hsr_m","sprints","accelerations","decelerations","sprint_start_s","sprint_duration_s","sprint_distance_m","sprint_peak_kmh","blockers"]];
+  for(const x of d.segments){const m=x.metrics,base=[x.id,x.local,x.team_name,x.level,x.coverage,(x.window_f[0]/S.ov.fps).toFixed(2),(x.window_f[1]/S.ov.fps).toFixed(2)];
+    rows.push(["segment",...base,m?m.distance_m:"",m?m.speed.max_kmh:"",m?m.hsr_distance_m:"",m?m.sprint_count:"",m?m.accelerations.length:"",m?m.decelerations.length:"","","","","",(x.blocker_codes||[]).join("|")]);
+    if(m)for(const z of m.sprints)rows.push(["sprint",...base,"","","","","","",z.start_s,z.duration_s,z.distance_m,z.peak_kmh,""])}
+  download(`segments_sprints_${tag}.csv`,head.join("\n")+"\n"+rows.map(r=>r.map(q).join(",")).join("\n"),"text/csv")}
+
+/* ---------- identity review (append-only annotation layer on the server) ---------- */
+function initReview(){
+  $("rConfirm").onclick=()=>postReview({action:"confirm",segments:checkedSegs(),identity:$("rIdent").value.trim()});
+  $("rUnknown").onclick=()=>postReview({action:"unknown",segments:checkedSegs()});
+  $("rReject").onclick=()=>{const t=curTrk();postReview({action:"reject_association",trk:t})};
+  $("rSplit").onclick=()=>postReview({action:"split",trk:curTrk(),frame:S.frame});
+  $("rMerge").onclick=()=>postReview({action:"merge",from:$("rFrom").value.trim(),into:$("rInto").value.trim(),explicit:$("rExplicit").checked});
+  $("rUndo").onclick=()=>{const me=$("rWho").value.trim(),undone=new Set(S.revEvents.filter(e=>e.action==="undo").map(e=>e.target_event));
+    const last=[...S.revEvents].reverse().find(e=>e.action!=="undo"&&!undone.has(e.id)&&(!me||e.reviewer===me));if(!last){$("rErr").textContent="nothing to undo";return}postReview({action:"undo",target_event:last.id})};
+  loadReviews();loadSuggestions()}
+async function loadSuggestions(){try{S.ho=await (await fetch("/api/suggestions")).json()}catch(e){S.ho={suggestions:[]}}renderSuggestions()}
+function renderSuggestions(){
+  const L=(S.ho&&S.ho.suggestions)||[],dec=(S.rev&&S.rev.handover_decisions)||{},w=S.ho&&S.ho.workload;
+  $("hoNote").textContent=L.length?`${L.length} suggestions (${w?w.per_minute_of_footage:"?"} per minute of footage) · ${Object.keys(dec).length} decided`:"none for this match";
+  const tier=["model: link","model: abstain (competing)","weak"];
+  $("hoList").innerHTML=L.slice(0,40).map(h=>{const d=dec[h.id],e=h.evidence;return `<div class="horow" style="border-top:1px solid #1e293b;padding:3px 0">#${h.priority} <b>${h.id}</b> · tracker #${h.from_local} → #${h.to_local} · gap ${(h.gap_frames/S.ov.fps).toFixed(2)} s · motion ${e.motion_ratio} · colour ${e.appearance_dist??"–"} · ${h.competing_candidates} competing · ${h.boxes_affected} boxes · <span class="sub">${tier[h.tier]}</span>${d?` · <b>${d.decision}</b>`:""}<br>
+    <button data-ho="${h.id}" data-k="before">before</button><button data-ho="${h.id}" data-k="after">after</button> <button data-ho="${h.id}" data-k="accept">accept</button><button data-ho="${h.id}" data-k="reject">reject</button><button data-ho="${h.id}" data-k="unsure">unsure</button></div>`}).join("")+(L.length>40?`<div class="sub">${L.length-40} lower-priority suggestions not shown</div>`:"");
+  for(const b of $("hoList").querySelectorAll("button[data-ho]"))b.onclick=()=>{const h=L.find(x=>x.id===b.dataset.ho),k=b.dataset.k;
+    if(k==="before"||k==="after"){if(S.playing)togglePlay();S.sel=k==="before"?h.from_local:h.to_local;seekFrame(k==="before"?Math.max(0,h.end_frame-12):h.start_frame);renderReviewSel();return}
+    postReview({action:"handover_decision",suggestion:h.id,decision:k,segments:h.segments}).then(renderSuggestions)}}
+async function loadReviews(){try{const d=await (await fetch("/api/reviews")).json();S.revEvents=d.events;S.rev=d.state;renderReviewLog()}catch(e){$("rErr").textContent="review service unavailable"}}
+function segsOfSel(){return S.sel==null?[]:S.ov.segments.map((g,k)=>[k,g]).filter(([k,g])=>g.local===S.sel)}
+function curTrk(){const j=lastObsOf(S.sel,S.frame);return j>=0?C.trk[j]:null}
+function checkedSegs(){return [...document.querySelectorAll("#rSegs input:checked")].map(e=>+e.value)}
+function renderReviewSel(){
+  const ss=segsOfSel();if(S.sel==null){$("rSel").textContent="Select a player to review their tracking segments.";$("rSegs").innerHTML="";return}
+  const j=lastObsOf(S.sel,S.frame),cur=j>=0?C.seg[j]:-1;
+  $("rSel").innerHTML=`Tracker #${S.sel}: ${ss.length} segments. Tick the ones that show the same person, check them in the video, then confirm.`;
+  $("rSegs").innerHTML=ss.map(([k,g])=>{const r=S.rev&&S.rev.segments[String(k)];return `<label class="chk" style="display:flex"><input type="checkbox" value="${k}" ${k===cur?"checked":""}> segment ${k} · ${fmtS(g.f0)}–${fmtS(g.f1)} · ${g.n} frames · G${g.gid} (${g.use})${r?` · <b>${r.status==="confirmed"?"R:"+r.identity:r.status}</b>`:""}</label>`}).join("")}
+async function postReview(ev){
+  ev.reviewer=$("rWho").value.trim();$("rErr").textContent="";
+  const r=await fetch("/api/reviews",{method:"POST",body:JSON.stringify(ev)}),d=await r.json();
+  if(!r.ok){$("rErr").innerHTML=d.errors.join("<br>");return false}
+  await loadReviews();renderReviewSel();renderSuggestions();reRender();return true}
+function renderReviewLog(){
+  const st=S.rev;if(!st)return;
+  $("rState").innerHTML=`${st.events_total} events (${st.events_undone} undone) · ${Object.keys(st.identities).length} reviewed identities · ${st.conflicts.length?`<span style="color:#fca5a5">${st.conflicts.length} conflicts (affected segments stay unresolved)</span>`:"no conflicts"}`;
+  $("rLog").innerHTML=st.conflicts.map(c=>`<div style="color:#fca5a5">conflict: ${c.type.replace(/_/g," ")} ${JSON.stringify(c.segments||c.segment||"")} ${c.labels?c.labels.join(" vs "):c.identity||""}</div>`).join("")+
+    [...S.revEvents].reverse().map(e=>`<div>#${e.id} ${e.time_utc} <b>${e.reviewer}</b>: ${e.action}${e.identity?` "${e.identity}"`:""}${e.segments?` segments ${e.segments.join(",")}`:""}${e.trk!=null?` tracklet ${e.trk}`:""}${e.frame!=null?` at frame ${e.frame}`:""}${e.from?` ${e.from} → ${e.into}`:""}${e.target_event?` event #${e.target_event}`:""}${e.suggestion?` hand-over ${e.suggestion}: ${e.decision}`:""}</div>`).join("")}
+
+/* ---------- advanced ---------- */
+function renderAdvancedStatic(){
+  const s=S.ov.summary,sb=s.status_boxes,tot=s.boxes_observed,p=v=>(100*v/tot).toFixed(1)+"%";
+  $("advId").innerHTML=[["observed boxes",tot.toLocaleString()],["confirmed",`${sb.confirmed} (${p(sb.confirmed)})`],["provisional",`${sb.provisional} (${p(sb.provisional)})`],["unknown / ambiguous",`${sb.unknown} / ${sb.ambiguous}`],
+    ["safe segments",`${s.segments} (${s.attributable_segments} attributable, ${(100*s.attributable_samples/tot).toFixed(1)}% of boxes)`],["blocked / bridged identity transitions",`${s.transitions_blocked} / ${s.transitions_bridged}`]].map(r=>`<b>${r[0]}</b><span>${r[1]}</span>`).join("");
+  const K=S.ov.continuity;if(K){const st=K.stats,ev=K.eval||{};const rows=[["tracking gaps (same tracker ID)",st.gaps_seen],["filled for display (≤ "+K.config.max_gap+" frames)",`${st.bridged} gaps, ${st.bridged_frames} frames`],
+      ["refused: identity segment change / implausible jump / crowded / too long",`${st.refused_tracklet_change} / ${st.refused_implausible} / ${st.refused_crowded??"–"} / ${st.refused_too_long}`],["lost-player fade",`${st.tails} × ≤ ${K.config.tail_frames} frames`],
+      ["label: upgrade shown after",`${K.config.upgrade_dwell} frames (downgrades immediate)`]];
+    if(ev.flicker)for(const [k,v] of Object.entries(ev.flicker))rows.push([k,v]);
+    $("advCont").innerHTML=rows.map(r=>`<b>${r[0]}</b><span>${r[1]}</span>`).join("")}
+  const cal=S.ov.calibration;if(cal){const h=cal.held_out;$("advCal").innerHTML=[["method",cal.method],["held-out keypoints (leave-one-out)",`median ${h.loo.median_m} m · p90 ${h.loo.p90_m} m · n=${h.loo.n}`],
+    ["interior keypoints",`median ${h.loo_interior.median_m} m · p90 ${h.loo_interior.p90_m} m · n=${h.loo_interior.n}`],["comparison (LOO median)",Object.entries(cal.comparison_loo_median_m).map(([k,v])=>`${k} ${v} m`).join(" · ")],
+    ["valid for",Object.entries(cal.uses).map(([k,v])=>`${k.replace(/_/g," ")} ${v?"✓":"✗"}`).join(" · ")],["caveats",cal.caveats.join(" ")]].concat(cal.refinement?[["refinement study",cal.refinement]]:[]).map(r=>`<b>${r[0]}</b><span>${r[1]}</span>`).join("")}
+  const c=$("hist").getContext("2d"),W=520,H=90,B=S.ov.conf_bins;c.clearRect(0,0,W,H);let mx=1;
+  for(const s2 of S.ov.statuses)for(const v of S.ov.conf_hist[s2])mx=Math.max(mx,v);
+  S.ov.statuses.slice(0,3).forEach((s2,k)=>{c.fillStyle=COL[s2];c.globalAlpha=.8;S.ov.conf_hist[s2].forEach((v,b)=>{const hh=v/mx*(H-14);c.fillRect(b*(W/B)+k*(W/B/3),H-hh-2,W/B/3-1,hh)})});c.globalAlpha=1;
+  $("lim").innerHTML=S.ov.limitations.map(x=>`<li>${x}</li>`).join("")}
+function renderStats(f){ // observed rows only; estimated rows are never counted
+  const all=[];for(let i=off[f];i<off[f+1];i++)if(!isEst(i))all.push(i);
+  const cnt=[0,0,0,0],rc=[0,0,0,0],locals=new Set();for(const i of all){cnt[C.st[i]]++;locals.add(C.local[i]);if(C.role)rc[C.role[i]]++}
+  let est=0;for(let i=off[f];i<off[f+1];i++)if(isEst(i)&&$("oEst").checked)est++;
+  S.stats={det:all.length,act:locals.size,c:cnt[0],p:cnt[1],u:cnt[2],a:cnt[3],roles:rc,est};
+  if(document.body.classList.contains("advanced"))$("advFrame").innerHTML=[["people detected",all.length],["estimated shown (not counted)",est],["confirmed / provisional / unknown / ambiguous",cnt.join(" / ")],
+    ["players / goalkeepers / officials / unknown role",rc.join(" / ")]].map(r=>`<b>${r[0]}</b><span>${r[1]}</span>`).join("")}
+
+function render(f,meta){
+  S.frame=f;S.rendered=f;$("clock").textContent=`${fmt(f)} · frame ${f}`;
+  $("clockInfo").textContent=S.haveVideo?"":"(stand-in clock, no video)";
+  drawVideoOverlay(f);drawBoard(f);renderStats(f);drawTimeline();if(PRES.on)presFrame(f);
+  const key=$("anaWin").value+":"+($("anaWin").value==="all"?0:Math.floor(f/25))+":"+S.hm;  // window analytics refresh at most once per second of match time
+  if(hasPitch()&&S.anaKey!==key){S.anaKey=key;renderTeams(f);drawHeat($("hm0"),0,S.zone0);drawHeat($("hm1"),1,S.zone1);drawFormation(f)}
+  if(hasPitch()&&(S.anaKey2!==key+S.sel||f%5===0)){S.anaKey2=key+S.sel;insights(f);drawShape(f)}
+  renderSelected(f);if(!PRES.on&&S.revSel!==S.sel){S.revSel=S.sel;renderReviewSel();if(S.presets&&$("pScope").value==="player")runPhys()}
+  S.lastMeta=meta?{mediaTime:meta.mediaTime,presented:meta.presentedFrames}:S.lastMeta}
+function reRender(){S.anaKey=null;render(S.frame)}
+function standinTick(){if(!S.haveVideo&&S.playing){const f=frameFromTime(mediaTime());if(PRES.on&&(f<PRES.f0||f>PRES.f1))seekFrame(f>PRES.f1?PRES.f0:clipF(f));else render(f)}requestAnimationFrame(standinTick)}
+
+/* ---------- interaction ---------- */
+function togglePlay(){S.playing=!S.playing;$("play").textContent=S.playing?"⏸ Pause":"▶ Play";
+  if(S.haveVideo){S.playing?vid.play():vid.pause()}else{S.clockRef=mediaTime();S.clockT=performance.now()}}
+$("play").onclick=()=>{if(S.haveVideo&&vid.ended)seekFrame(0);togglePlay()};
+for(const [id,d] of [["b1",-1],["f1",1],["b25",-25],["f25",25]])$(id).onclick=()=>{if(S.playing)togglePlay();seekFrame(S.frame+d)};
+$("speed").onchange=()=>{vid.playbackRate=parseFloat($("speed").value)};
+for(const b of document.querySelectorAll("[data-zoom]"))b.onclick=()=>setZoom(+b.dataset.zoom);
+function setZoom(z){S.zoom=z;for(const x of document.querySelectorAll("[data-zoom]"))x.classList.toggle("on",+x.dataset.zoom===z);reRender()}
+$("follow").onchange=()=>{S.follow=$("follow").checked;reRender()};
+$("idDisplay").onclick=()=>setId("display");$("idLocal").onclick=()=>setId("local");$("idGlobal").onclick=()=>setId("global");$("idReviewed").onclick=()=>setId("reviewed");
+function setId(m){S.idMode=m;for(const [id,k] of [["idDisplay","display"],["idLocal","local"],["idGlobal","global"],["idReviewed","reviewed"]])$(id).classList.toggle("on",m===k);reRender()}
+for(const id of ["oBoxes","oLabels","oConf","oEst","oTrail","oCal","oSmooth"])$(id).onchange=reRender;
+$("oImage").onchange=()=>setBoard($("oImage").checked?"image":"pitch");
+function setBoard(m){S.boardImage=m==="image"||!hasPitch();$("oImage").checked=S.boardImage;$("noteImage").style.display=S.boardImage?"block":"none";$("notePitch").style.display=S.boardImage?"none":"block";
+  $("boardTitle").textContent=S.boardImage?"Tactical board — image layout (not a pitch projection)":"Tactical board";$("bSpace").textContent=S.boardImage?"PIXEL SPACE · NON-METRIC":"APPROXIMATE PITCH POSITIONS";if(S.ov)reRender()}
+function setRole(r){S.role=r;$("roleSel").value=r;reRender()}
+$("roleSel").onchange=()=>setRole($("roleSel").value);
+function setTeam(t){S.team=t;for(const b of document.querySelectorAll("[data-team]"))b.classList.toggle("on",b.dataset.team===t);reRender()}
+for(const b of document.querySelectorAll("[data-team]"))b.onclick=()=>setTeam(b.dataset.team);
+$("anaWin").onchange=()=>{S.anaKey=null;reRender()};
+$("hmDensity").onclick=()=>{S.hm="density";$("hmDensity").classList.add("on");$("hmZones").classList.remove("on");reRender()};
+$("hmZones").onclick=()=>{S.hm="zones";$("hmZones").classList.add("on");$("hmDensity").classList.remove("on");reRender()};
+$("clearSel").onclick=()=>{S.sel=null;reRender()};
+$("reset").onclick=()=>{S.sel=null;S.follow=false;$("follow").checked=false;S.vx=S.vy=0;setTeam("all");setRole("all");$("oConf").checked=false;$("oEst").checked=true;$("oSmooth").checked=true;$("oTrail").checked=true;setZoom(1);setBoard("pitch")};
+$("expand").onclick=()=>{const p=$("boardPanel");document.fullscreenElement?document.exitFullscreen():p.requestFullscreen&&p.requestFullscreen()};
+$("tabCoach").onclick=()=>setMode(false);$("tabAdv").onclick=()=>setMode(true);
+function setMode(a){document.body.classList.toggle("advanced",a);$("tabAdv").classList.toggle("on",a);$("tabCoach").classList.toggle("on",!a);if(a)$("advPanel").scrollIntoView({behavior:"smooth"});reRender()}
+function seekFromTimeline(e){const r=tl.getBoundingClientRect();if(PRES.on){seekFrame(PRES.f0+(e.clientX-r.left)/r.width*(PRES.f1-PRES.f0));return}seekFrame((e.clientX-r.left)/r.width*(S.nFrames-1))}
+let dragTl=false;tl.onmousedown=e=>{dragTl=true;seekFromTimeline(e)};window.addEventListener("mousemove",e=>{if(dragTl)seekFromTimeline(e)});window.addEventListener("mouseup",()=>dragTl=false);
+let drag=null;ov.onmousedown=e=>{drag={x:e.clientX,y:e.clientY,vx:S.vx,vy:S.vy||0,moved:false}};
+window.addEventListener("mousemove",e=>{if(drag&&S.zoom>1){const d=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(d)>3||Math.abs(dy)>3){drag.moved=true;S.follow=false;$("follow").checked=false;S.vx=drag.vx-d;S.vy=drag.vy-dy;reRender()}}});
+window.addEventListener("mouseup",()=>{setTimeout(()=>drag=null,0)});
+ov.onclick=e=>{if(drag&&drag.moved)return;const r=ov.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let best=null,ba=1e12;
+  for(const [i,x1,y1,x2,y2] of S.hit||[])if(x>=x1&&x<=x2&&y>=y1&&y<=y2){const a=(x2-x1)*(y2-y1);if(a<ba){ba=a;best=i}}
+  S.sel=best==null?null:C.local[best];reRender()};
+bd.onclick=e=>{const r=bd.getBoundingClientRect(),k=bd.width/r.width,x=(e.clientX-r.left)*k,y=(e.clientY-r.top)*k;let best=null,bd2=24*24;
+  for(const [i,bx,by] of S.bhit||[]){const d=(bx-x)**2+(by-y)**2;if(d<bd2){bd2=d;best=i}}S.sel=best==null?null:C.local[best];reRender()};
+ov.onmousemove=e=>{if(!PRES.on)return;const r=ov.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let best=null,ba=1e12; // presentation: hovered track label at Fit
+  for(const [i,x1,y1,x2,y2] of S.hit||[])if(x>=x1-6&&x<=x2+6&&y>=y1-6&&y<=y2+8){const a=(x2-x1)*(y2-y1);if(a<ba){ba=a;best=i}}
+  const h=best==null?null:C.local[best];if(h!==PRES.hov){PRES.hov=h;if(!S.playing)render(S.frame)}};
+ov.onmouseleave=()=>{if(PRES.on&&PRES.hov!=null){PRES.hov=null;if(!S.playing)render(S.frame)}};
+$("tabPres").onclick=()=>setPres(!PRES.on);
+bd.onmousemove=boardHover;bd.onmouseleave=()=>{$("tip").style.display="none"};
+$("idtl").onclick=e=>{const r=$("idtl").getBoundingClientRect();if(S.playing)togglePlay();seekFrame((e.clientX-r.left)/r.width*(S.nFrames-1))};
+window.addEventListener("keydown",e=>{if(e.target.tagName==="SELECT"||e.target.tagName==="INPUT")return;if(e.code==="Space"){e.preventDefault();togglePlay()}
+  else if(e.code==="ArrowRight"){seekFrame(S.frame+(e.shiftKey?25:1))}else if(e.code==="ArrowLeft"){seekFrame(S.frame-(e.shiftKey?25:1))}else if(e.code==="Escape"){S.sel=null;reRender()}});
+window.addEventListener("resize",()=>{if(S.ov)reRender()});
+
+/* ---------- start-up ---------- */
+async function start(){
+  const t0=performance.now();let ov0;try{const r=await fetch("/api/overlay");if(!r.ok)throw new Error(r.status);ov0=await r.json()}catch(e){$("bMatch").textContent="· overlay data missing";$("bMatch").className="badge bad";return}
+  S.ov=ov0;C=ov0.cols;off=ov0.frame_offsets;S.nFrames=ov0.n_frames;
+  frameOfBox=new Int32Array(C.local.length);posInLocal=new Int32Array(C.local.length);byLocal=new Map();
+  for(let f=0;f<S.nFrames;f++)for(let i=off[f];i<off[f+1];i++){frameOfBox[i]=f;let a=byLocal.get(C.local[i]);if(!a){a=[];byLocal.set(C.local[i],a)}posInLocal[i]=a.length;a.push(i)}
+  $("bMatch").textContent=`· SoccerTrack match ${ov0.match_id} · ${fmtS(S.nFrames)} · ${ov0.fps} fps`;
+  if(!C.src){$("oEst").checked=false}
+  if(hasPitch()){buildSeries();S.dir=S.dirAll=inferDirection();const h=ov0.calibration.held_out;
+    $("notePitch").textContent=`Positions are approximate: calibration error on held-out landmarks is ${h.loo.median_m} m typical, ${h.loo.p90_m} m for 1 in 10 (interior ${h.loo_interior.median_m} / ${h.loo_interior.p90_m} m). Markers are never moved for readability — only labels are. Grey markers stand 1–5 m outside the lines.`;setBoard("pitch")}
+  else setBoard("image");
+  renderAdvancedStatic();renderGates();initPhysical();S.loadMs=Math.round(performance.now()-t0);
+  const health=await (await fetch("/api/health")).json();
+  if(health.video){
+    await new Promise(res=>{vid.addEventListener("loadedmetadata",res,{once:true});vid.addEventListener("error",res,{once:true});vid.src=ov0.video.url});
+    S.haveVideo=!vid.error&&vid.videoWidth>0;
+    if(!S.haveVideo)$("novideoMsg").textContent="The browser could not decode the video: "+(vid.error?vid.error.message:"unknown error");
+  }else $("novideoMsg").textContent="File not found on this machine.";
+  $("bVideo").textContent=S.haveVideo?`video ${vid.videoWidth}×${vid.videoHeight}`:"no video";$("bVideo").className="badge "+(S.haveVideo?"":"bad");
+  $("novideo").style.display=S.haveVideo?"none":"flex";
+  if(QS.get("mode")==="presentation")setPres(true); // opt-in only; the first seek below is then clamped to the clip
+  if(S.haveVideo){await calibrateStart();vid.requestVideoFrameCallback(onPresented);seekFrame(0)}else{requestAnimationFrame(standinTick);seekFrame(0)}
+  window.__demo={S,seekFrame,render,boxesOf,label,setId,togglePlay,vid,C,off,setBoard,setRole,setTeam,setZoom,setMode,lev,src,boardPos,byLocal,frameOfBox,winRange,agg,TS,runPhys,readSettings,postReview,loadReviews,loadSuggestions,renderSuggestions,
+    PRES,setPres,presCounts,trailPts,teamOf};
+  if(location.search.includes("selftest"))import_selftest();
+}
+start();
+/* ---------- built-in self test (?selftest=1): drives the real UI, reports to /api/selftest ---------- */
+async function import_selftest(){
+  const R={checks:[],video:S.haveVideo,t0:new Date().toISOString(),load_ms:S.loadMs};const wait=ms=>new Promise(r=>setTimeout(r,ms));
+  const settle=async(f)=>{const t=performance.now();while(performance.now()-t<8000){if(!S.seeking&&S.rendered===f)return true;await wait(30)}return false};
+  const chk=(name,ok,detail)=>R.checks.push({name,ok:!!ok,detail});
+  try{
+    if(PRES.on)await presSelftest(chk,settle,wait);else{
+    for(const f of [0,1000,3000,2999,10,5975,1500,1499,1500]){
+      const t=performance.now();seekFrame(f);const ok=await settle(f);const ms=Math.round(performance.now()-t);await wait(80);
+      const j=S.haveVideo?frameFromTime(vid.currentTime):f,n=[...Array(off[f+1]-off[f]).keys()].filter(k=>!isEst(off[f]+k)).length;
+      chk(`seek ${f}`,ok&&S.rendered===f&&j===f&&S.stats.det===n,{requested:f,video_frame:j,rendered:S.rendered,det_counted:S.stats.det,det_observed:n,seek_ms:ms});
+    }
+    seekFrame(2000);await settle(2000);await wait(100);chk("boxes drawn for frame 2000",S.hit.length>0,{hits:S.hit.length});
+    chk("start offset equals measured first-frame PTS",S.haveVideo&&S.startMeasured!=null&&Math.abs(S.ov.video.start_time_s-S.startMeasured)<0.002,{used:S.ov.video.start_time_s,measured:S.startMeasured,stored_in_overlay:S.startStored});
+    const i0=off[2000];setId("display");const d=label(i0);setId("local");const l=label(i0);setId("global");const g=label(i0);setId("display");
+    chk("display / tracker / identity labels are separate",d===String(C.local[i0])&&l==="L"+C.local[i0]&&(g.startsWith("G")||g==="?"),{display:d,local:l,global:g});
+    let over=0,tested=0;for(let q=0;q<C.local.length;q++){tested++;const raw=C.st[q]>=2?2:(C.st[q]===1||C.as[q]===1?1:0);if(lev(q)<raw)over++}
+    chk("displayed identity never more trusted than the data",over===0,{tested,over});
+    // estimated rows: never counted, never analytics-eligible, flagged and fading
+    let bad=0,ne=0;for(let q=0;q<C.local.length;q++)if(isEst(q)){ne++;if(C.elig[q]===0||C.conf[q]!=null||src(q)===0)bad++}
+    chk("estimated rows are display-only",ne>0&&bad===0,{estimated:ne,bad});
+    // a bridged gap keeps the marker and the selection
+    let gi=-1;for(let q=off[3000];q<C.local.length&&gi<0;q++)if(src(q)===1&&C.local[q]!==undefined)gi=q;
+    const gl=C.local[gi],gf=frameOfBox[gi];S.sel=gl;seekFrame(gf);await settle(gf);await wait(60);
+    const drawn=S.bhit.some(([i])=>i===gi);chk("short gap: marker stays (estimated) and selection persists",drawn&&S.sel===gl&&$("sel").innerText.includes("ESTIMATED"),{local:gl,frame:gf,drawn,dconf:C.dconf[gi]});
+    if(S.haveVideo){seekFrame(1000);await settle(1000);vid.playbackRate=1;const q0=vid.getVideoPlaybackQuality(),f0=S.rendered;togglePlay();await wait(3000);const fe=S.rendered;togglePlay();await wait(200);
+      const q1=vid.getVideoPlaybackQuality();chk("playback advances ~75 frames in 3 s at 1x",fe-f0>=55&&fe-f0<=90,{advanced:fe-f0,dropped:q1.droppedVideoFrames-q0.droppedVideoFrames,decoded:q1.totalVideoFrames-q0.totalVideoFrames});
+      chk("overlay frame equals video frame while playing",Math.abs(S.rendered-frameFromTime(vid.currentTime))<=1,{rendered:S.rendered,video:frameFromTime(vid.currentTime)})}
+    if(hasPitch()){
+      setBoard("pitch");seekFrame(2500);await settle(2500);await wait(60);const ids=boxesOf(2500),bs=S.boardStats;let moved=0;
+      for(const [i,x,y] of S.bhit){const [ex,ey]=pitchXY(C.sx[i],C.sy[i]);if(Math.abs(ex-x)>1e-6||Math.abs(ey-y)>1e-6)moved++}
+      chk("board draws stored (smoothed display) positions only",bs.pitch&&bs.drawn+bs.hidden===ids.length&&moved===0,{drawn:bs.drawn,hidden:bs.hidden,est:bs.est,lost:bs.lost,moved});
+      $("oSmooth").checked=false;render(2500);moved=0;for(const [i,x,y] of S.bhit){const [ex,ey]=pitchXY(C.pxm[i],C.pym[i]);if(Math.abs(ex-x)>1e-6||Math.abs(ey-y)>1e-6)moved++}
+      chk("smoothing off: raw stored positions",moved===0,{moved});$("oSmooth").checked=true;
+      const full=boxesOf(2500).length,det={};let ok=true;for(const r of ["1","2","3","active"]){setRole(r);const b=boxesOf(2500);det[r]=b.length;ok=ok&&b.every(i=>r==="active"?C.role[i]<=1:C.role[i]===+r)}
+      setRole("all");chk("role filters partition everyone (no cap)",ok&&det["2"]+det["3"]+det["active"]===full,{all:full,...det});
+      let okT=true;for(const t of ["0","1"]){setTeam(t);okT=okT&&boxesOf(2500).every(i=>teamOf(i)===+t)}setTeam("all");chk("team filters",okT,{});
+      let elig=0;for(let q=0;q<C.local.length;q++)if(C.elig[q]===0)elig++;const A0=agg(0,0,S.nFrames-1);
+      $("anaWin").value="1500";$("anaWin").dispatchEvent(new Event("change"));seekFrame(4000);await settle(4000);await wait(60);const w=winRange(4000);
+      chk("analytics window follows the selection",w[0]===2501&&w[1]===4000&&$("ovWin").textContent.includes("1:40"),{window:w,label:$("ovWin").textContent});
+      $("anaWin").value="all";$("anaWin").dispatchEvent(new Event("change"));
+      chk("analytics use eligible observed rows only",elig>0&&A0.k>0,{eligible_rows:elig,coverage_blue:A0.cov.toFixed(3)})}
+    chk("display interpolation is on and flagged",$("oEst").checked,{});
+    }
+  }catch(e){chk("selftest exception",false,String(e))}
+  R.mode=PRES.on?"presentation":"default";R.ok=R.checks.every(c=>c.ok);R.done=true;window.__selftest=R;
+  try{await fetch("/api/selftest",{method:"POST",body:JSON.stringify(R)})}catch(e){}
+}
+/* presentation-mode self test (?mode=presentation&selftest=1): clip clamp and loop, frame sync, T labels, counters, trails, hidden tools, clip-bounded analytics */
+async function presSelftest(chk,settle,wait){
+  const f0=PRES.f0,f1=PRES.f1,vis=id=>{const e=$(id);return !!e&&e.offsetParent!==null};
+  chk("presentation clip is 2:20–3:00 unless t0/t1 given",QS.has("t0")||QS.has("t1")||(f0===3500&&f1===4499),{f0,f1,t0:PRES.t0,t1:PRES.t1});
+  for(const f of [f0,f0+1,f0+250,3999,4000,f1-1,f1,f0+25]){const t=performance.now();seekFrame(f);const ok=await settle(f);await wait(80);
+    const j=S.haveVideo?frameFromTime(vid.currentTime):f;chk(`seek ${f}`,ok&&S.rendered===f&&j===f,{requested:f,video_frame:j,rendered:S.rendered,seek_ms:Math.round(performance.now()-t)})}
+  for(const [req,exp] of [[0,f0],[f0-1,f0],[f1+1,f1],[S.nFrames-1,f1]]){seekFrame(req);await settle(exp);await wait(60);const j=S.haveVideo?frameFromTime(vid.currentTime):exp;
+    chk(`seek ${req} is clamped to the clip`,S.rendered===exp&&j===exp,{requested:req,expected:exp,rendered:S.rendered,video_frame:j})}
+  let bad=0,n=0;for(let f=f0;f<=f1;f+=7)for(let i=off[f];i<off[f+1];i++){n++;if(label(i)!=="T"+C.local[i])bad++}
+  chk("every label is a local track label T<id>",n>0&&bad===0,{rows:n,bad});
+  seekFrame(4000);await settle(4000);await wait(60);const vl=S.hit.length,bl=S.bhit.length;
+  S.sel=C.local[off[4000]];render(4000);chk("selected track panel shows T and no identity",$("sel").innerText.includes("T"+S.sel)&&!/\bG\d|trusted|hypothesis/.test($("sel").innerText),{sel:S.sel,text:$("sel").innerText.slice(0,120)});
+  chk("markers drawn on video and board",vl>0&&bl>0,{video:vl,board:bl});
+  // counters: independent recount from the columns; the chip appears exactly when a team count exceeds 11
+  let cbad=0,over=null,under=null;for(let f=f0;f<=f1;f++){const c=[0,0,0];for(let i=off[f];i<off[f+1];i++){if(C.src[i]!==0||C.pv[i]===2||C.role[i]>1)continue;
+      const t=C.team[i],ok=(t===0||t===1)&&(C.tconf[i]??0)>=S.ov.team_reliable;c[ok?t:2]++}
+    const p=presCounts(f),q=PRES.cnt[f-f0];if(p.join()!==c.join()||q.join()!==c.join())cbad++;if(over==null&&(c[0]>11||c[1]>11))over=f;if(under==null&&f>f0+100&&c[0]<=11&&c[1]<=11)under=f}
+  chk("per-frame team counts match an independent recount",cbad===0,{frames:f1-f0+1,bad:cbad,over11_blue:PRES.over[0],over11_white:PRES.over[1]});
+  for(const f of [over,under]){if(f==null)continue;seekFrame(f);await settle(f);await wait(60);const c=PRES.cnt[f-f0],shown=vis("pWarn");
+    chk(`frame ${f}: counter text and > 11 warning`,$("pCount").innerText.includes(`Blue ${c[0]}`)&&$("pCount").innerText.includes(`White ${c[1]}`)&&shown===(c[0]>11||c[1]>11),{counts:c,warning_shown:shown})}
+  // trails: one tracklet, consecutive frames, inside the clip, at most 1 s (2 s selected)
+  let tb=0,tn=0,tmax=0;for(let f=f0;f<=f1;f+=13)for(let i=off[f];i<off[f+1];i++){if(C.src[i]===2)continue;const P=trailPts(C.local[i],f,k=>[0,0],25);tn++;tmax=Math.max(tmax,P.length);
+    for(let k=1;k<P.length;k++){const a=P[k-1][2],b=P[k][2];if(C.trk[a]!==C.trk[b]||frameOfBox[a]-frameOfBox[b]!==1||frameOfBox[b]<f0||C.local[a]!==C.local[b])tb++}}
+  chk("trails never join tracklets, gaps or pre-clip frames",tn>0&&tb===0&&tmax<=25,{trails:tn,bad_links:tb,max_len:tmax});
+  // hidden tools and withheld values
+  const hid=["physPanel","revPanel","advPanel","idGlobal","idReviewed","idLocal","oConf","tabAdv"].filter(vis);
+  chk("physical, identity and diagnostic tools hidden",!hid.length&&vis("presStrip")&&vis("pValid"),{visible:hid});
+  const txt=document.body.innerText,hits=(txt.match(/\d[\d.,]*\s*(km\/h|m\/s|km\b)|\bsprints?\b|\bpossession\b|fatigue|workload|\bG\d+\b|distance covered/gi)||[]);
+  chk("no speed, distance, fatigue, possession or global-identity text visible",hits.length===0,{hits:hits.slice(0,10)});
+  chk("validity strip states calibration limits and local identity",/NOT VALID for speed or distance/.test($("pValid").innerText)&&/not player identities/.test($("pValid").innerText+$("legend").innerText)&&/Clip selected for visual clarity/.test($("pDisclose").innerText),{});
+  // analytics restricted to the clip
+  const w0=winRange(f0+100);$("anaWin").value="375";$("anaWin").dispatchEvent(new Event("change"));const w1=winRange(f0+100),w2=winRange(f1);$("anaWin").value="all";$("anaWin").dispatchEvent(new Event("change"));
+  seekFrame(4200);await settle(4200);await wait(60);
+  chk("team analytics use the clip interval only",w0[0]===f0&&w0[1]===f1&&w1[0]===f0&&w1[1]===f0+100&&w2[0]===f1-374&&w2[1]===f1&&$("ovWin").textContent.includes(`${fmtS(f0)}–${fmtS(f1)}`),{whole:w0,last15_early:w1,last15_end:w2,label:$("ovWin").textContent});
+  if(S.haveVideo){seekFrame(f1-40);await settle(f1-40);vid.playbackRate=1;const seen=[];let wrapped=false,maxOff=0;togglePlay();const t=performance.now();
+    while(performance.now()-t<3500){await wait(40);seen.push(S.rendered);if(S.rendered<f1-60)wrapped=true;if(!S.seeking)maxOff=Math.max(maxOff,Math.abs(S.rendered-frameFromTime(vid.currentTime)))}togglePlay();await wait(200);
+    chk("playback loops inside the clip",wrapped&&seen.every(x=>x>=f0&&x<=f1),{min:Math.min(...seen),max:Math.max(...seen),wrapped});
+    chk("overlay frame equals video frame while playing",maxOff<=1,{max_offset:maxOff})}
+  // switching presentation mode off restores the default dashboard state
+  setPres(false);await wait(100);const i0=off[S.frame];
+  chk("presentation off restores default labels, panels and window",!document.body.classList.contains("presentation")&&label(i0)===String(C.local[i0])&&vis("physPanel")&&!vis("presStrip")&&winRange(S.frame)[0]===0&&winRange(S.frame)[1]===S.nFrames-1&&S.dir===S.dirAll,{label:label(i0)});
+  seekFrame(100);await settle(100);chk("default seek outside the clip works again",S.rendered===100,{rendered:S.rendered});
+  setPres(true);await settle(f0);chk("presentation on again",S.rendered===f0&&document.body.classList.contains("presentation"),{rendered:S.rendered})}
+</script>
+</body>
+</html>
